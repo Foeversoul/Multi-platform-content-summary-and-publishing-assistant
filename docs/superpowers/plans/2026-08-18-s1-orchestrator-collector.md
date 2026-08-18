@@ -1472,8 +1472,8 @@ def test_hash_and_simhash_stable():
 
 
 def test_near_duplicate_simhash_close():
-    a = "今天股市大涨，科技板块领涨，投资者情绪乐观。"
-    b = "今天股市大涨，科技板块领涨，投资者情绪非常乐观。"
+    a = "今天股市大涨，科技板块领涨，投资者情绪乐观，多家机构发布研报看好后市，成交量显著放大，北向资金持续流入。"
+    b = "今天股市大涨，科技板块领涨，投资者情绪非常乐观，多家机构发布研报看好后市，成交量显著放大，北向资金持续流入。"
     assert hamming(simhash(a), simhash(b)) <= 3
 
 
