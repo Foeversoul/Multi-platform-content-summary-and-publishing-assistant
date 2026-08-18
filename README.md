@@ -10,3 +10,9 @@
 
 ## Docker 部署（S1）
 `docker compose up -d postgres redis worker`
+
+## S2：内容处理
+- 事件：`article.crawled` → 生成 `summary` → 发出 `summary.generated`
+- 摘要标准：200~400 字；要点 3~5 条（≤60 字）；标题 ≤30 字
+- LLM：默认 DeepSeek，配置 `.env` 的 `ASSISTANT_LLM_API_KEY`；失败自动回退抽取式摘要
+- 质量：摘要长度/要点数/实体保留率/平均句长自动评分，写入 `summary.scores`

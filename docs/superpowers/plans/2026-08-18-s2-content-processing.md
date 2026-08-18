@@ -1073,3 +1073,6 @@ git commit -m "docs: s2 content processing usage"
 1. **Spec 覆盖**：降噪/实体/关键词/句子打分/抽取式/LLM 生成/回退/质量评分/Summary 表/事件接线/worker 注册均有对应任务；质量指标（长度、要点、标题、实体保留率、句长）在 Task 7/9 落地；覆盖率约束在 Task 9 验证。
 2. **占位符扫描**：无 TBD/TODO；每个代码步骤含完整可运行代码。
 3. **类型一致性**：`ChatMessage(role, content)`、`SummarizerResult(summary_text, key_points, short_title, source)`、`score_summary` 返回键、`Summary` 字段在跨任务一致；`register_processor_handlers(registry, settings, redis, provider=None)` 在 Task 8/9 一致；worker 导入路径一致。
+
+## 执行期备注（Ruling P）
+- 本环境 coverage 的 trace 追踪与 jieba 互锁（`coverage run -m pytest` 在含 jieba 的用例上 >150s 无进展，含 `--source=app`/`--concurrency=thread` 均复现）。S2 覆盖率改在正常环境补跑（S5 运维项）；替代证据：每个 processor 模块均有直接单测（clean 3 / entities 2 / keywords 2 / extractive 2 / summarizer 3 / quality 1 / service 4 / 集成 1），全套 71 项通过、ruff 干净。
