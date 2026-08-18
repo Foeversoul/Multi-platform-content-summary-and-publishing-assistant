@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from app.config import Settings
+from app.storage.db import build_session_factory
 
 
 @pytest.fixture
@@ -16,3 +17,8 @@ def settings(tmp_path: Path) -> Settings:
         random_delay_max_seconds=0.0,
         retry_base_seconds=0.01,
     )
+
+
+@pytest.fixture
+def session_factory():
+    return build_session_factory("sqlite:///:memory:")
