@@ -92,3 +92,36 @@ def test_status_page_shows_counts(session_factory, redis):
     assert resp.status_code == 200
     assert "reviewed" in resp.text
     assert "队列" in resp.text
+
+
+def test_failed_list_shows_dead_letters(session_factory, redis):
+    session = session_factory()
+    session.add(Article(url="https://x/f1", title="失败文章", text="t", content_hash="c", simhash_value=1, status=ArticleStatus.FAILED))
+    session.commit()
+    client = _client(session_factory, redis)
+    resp = client.get("/failed")
+    assert resp.status_code == 200
+    assert "失败文章" in resp.text
+
+
+def test_retry_failed_article_requeues(session_factory, redis):
+    session = session_factory()
+    session.add(Article(url="https://x/f2", title="重跑", text="t", content_hash="c", simhash_value=2, status=ArticleStatus.FAILED))
+    session.commit()
+    client = _client(session_factory, redis)
+    assert client.post("/failed/1/retry", follow_redirects=False).status_code == 303
+    session2 = session_factory()
+    art = session2.get(Article, 1)
+    assert art.status == ArticleStatus.PENDING
+    session2.close()
+
+
+def test_discard_dead_letter_marks_rejected(session_factory, redis):
+    session = session_factory()
+    session.add(Article(url="https://x/f3", title="放弃", text="t", content_hash="c", simhash_value=3, status=ArticleStatus.DEAD_LETTER))
+    session.commit()
+    client = _client(session_factory, redis)
+    assert client.post("/failed/1/discard", follow_redirects=False).status_code == 303
+    session2 = session_factory()
+    assert session2.get(Article, 1).status == ArticleStatus.REJECTED
+    session2.close()

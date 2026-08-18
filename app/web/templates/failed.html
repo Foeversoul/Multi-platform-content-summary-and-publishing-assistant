@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}失败/死信 · 内容助手{% endblock %}
+{% block content %}
+<h2>失败 / 死信兜底</h2>
+{% if rows %}
+<table>
+  <tr><th>状态</th><th>标题</th><th>来源</th><th>URL</th><th>更新时间</th><th>操作</th></tr>
+  {% for article, source in rows %}
+  <tr>
+    <td>{{ article.status }}</td>
+    <td>{{ article.title }}</td>
+    <td>{{ source.name if source else "手动" }}</td>
+    <td>{{ article.url[:60] }}</td>
+    <td>{{ article.updated_at }}</td>
+    <td>
+      <form method="post" action="/failed/{{ article.id }}/retry" style="display:inline"><button>重跑</button></form>
+      {% if article.status == "dead_letter" %}
+      <form method="post" action="/failed/{{ article.id }}/discard" style="display:inline"><button>放弃</button></form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p>无失败/死信任务。</p>
+{% endif %}
+{% endblock %}

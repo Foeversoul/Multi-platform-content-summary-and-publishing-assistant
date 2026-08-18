@@ -7,16 +7,20 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 
+from app.orchestrator.state import transition
 from app.storage.models import (
     Article,
+    ArticleStatus,
     EventLog,
     PlatformCopy,
     Publish,
     PublishStatus,
     Review,
+    Source,
     Summary,
     Verdict,
 )
+from app.storage.queue import emit_event
 
 TEMPLATES = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
@@ -116,5 +120,41 @@ def create_app(session_factory, redis, event_stream: str = "assistant:events"):
                 "recent_events": recent_events,
             },
         )
+
+    @app.get("/failed")
+    def failed_list(request: Request):
+        with _session() as session:
+            rows = session.execute(
+                select(Article, Source)
+                .join(Source, Source.id == Article.source_id, isouter=True)
+                .where(Article.status.in_([ArticleStatus.FAILED, ArticleStatus.DEAD_LETTER]))
+                .order_by(Article.updated_at.desc())
+            ).all()
+        return TEMPLATES.TemplateResponse(request, "failed.html", {"rows": rows})
+
+    @app.post("/failed/{article_id}/retry")
+    def retry_article(article_id: int):
+        with _session() as session:
+            article = session.get(Article, article_id)
+            if article is None:
+                raise HTTPException(status_code=404, detail="article not found")
+            transition(ArticleStatus(article.status), ArticleStatus.PENDING)
+            article.status = ArticleStatus.PENDING
+            source = session.get(Source, article.source_id) if article.source_id else None
+            payload = {"source_id": source.external_id} if source else {"url": article.url}
+            asyncio.run(emit_event(app.state.redis, session, "crawl.requested", payload, app.state.event_stream))
+            session.commit()
+        return RedirectResponse("/failed", status_code=303)
+
+    @app.post("/failed/{article_id}/discard")
+    def discard_article(article_id: int):
+        with _session() as session:
+            article = session.get(Article, article_id)
+            if article is None:
+                raise HTTPException(status_code=404, detail="article not found")
+            transition(ArticleStatus(article.status), ArticleStatus.REJECTED)
+            article.status = ArticleStatus.REJECTED
+            session.commit()
+        return RedirectResponse("/failed", status_code=303)
 
     return app
