@@ -37,6 +37,18 @@ class SummaryStatus(StrEnum):
     FAILED = "failed"
 
 
+class CopyStatus(StrEnum):
+    PENDING = "pending"
+    ADAPTED = "adapted"
+    REVIEWED = "reviewed"
+
+
+class Verdict(StrEnum):
+    PENDING = "pending"
+    PASS = "pass"
+    REJECT = "reject"
+
+
 class Source(Base):
     __tablename__ = "source"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -87,3 +99,24 @@ class Summary(Base):
     status: Mapped[str] = mapped_column(String(32), default=SummaryStatus.PENDING, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class PlatformCopy(Base):
+    __tablename__ = "platform_copy"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    summary_id: Mapped[int] = mapped_column(ForeignKey("summary.id"), index=True)
+    platform: Mapped[str] = mapped_column(String(16), index=True)
+    text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default=CopyStatus.PENDING, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class Review(Base):
+    __tablename__ = "review"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    copy_id: Mapped[int] = mapped_column(ForeignKey("platform_copy.id"), unique=True, index=True)
+    verdict: Mapped[str] = mapped_column(String(16), default=Verdict.PENDING)
+    scores: Mapped[dict] = mapped_column(JSON)
+    comment: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

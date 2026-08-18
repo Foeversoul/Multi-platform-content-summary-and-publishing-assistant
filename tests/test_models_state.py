@@ -2,7 +2,20 @@ import pytest
 from sqlalchemy import select
 
 from app.orchestrator.state import InvalidTransitionError, transition
-from app.storage.models import Article, ArticleStatus, EventLog, EventStatus, Source, Summary, SummaryStatus, utcnow
+from app.storage.models import (
+    Article,
+    ArticleStatus,
+    CopyStatus,
+    EventLog,
+    EventStatus,
+    PlatformCopy,
+    Review,
+    Source,
+    Summary,
+    SummaryStatus,
+    Verdict,
+    utcnow,
+)
 
 
 def test_valid_transition():
@@ -58,4 +71,31 @@ def test_summary_crud(session_factory):
     assert row.key_points == ["要点一", "要点二", "要点三"]
     assert row.scores["summary_len"] == 15
     assert row.status == SummaryStatus.SUMMARIZED
+    session.close()
+
+
+def test_copy_and_review_crud(session_factory):
+    session = session_factory()
+    art = Article(url="https://x/a1", title="t", text="正文", content_hash="c", simhash_value=1, status=ArticleStatus.SUMMARIZED)
+    session.add(art)
+    session.flush()
+    summary = Summary(
+        article_id=art.id,
+        summary_text="摘要内容" * 30,
+        key_points=["要点一", "要点二", "要点三"],
+        short_title="标题",
+        scores={},
+        status=SummaryStatus.SUMMARIZED,
+    )
+    session.add(summary)
+    session.flush()
+    copy = PlatformCopy(summary_id=summary.id, platform="weibo", text="文案内容", status=CopyStatus.ADAPTED)
+    session.add(copy)
+    session.flush()
+    review = Review(copy_id=copy.id, verdict=Verdict.PENDING, scores={"style_score": 90})
+    session.add(review)
+    session.commit()
+    row = session.scalar(select(Review).where(Review.copy_id == copy.id))
+    assert row.verdict == Verdict.PENDING
+    assert row.scores["style_score"] == 90
     session.close()
