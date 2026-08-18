@@ -1,4 +1,4 @@
-from app.collector.dedup import DedupService, hash_content, hamming, simhash
+from app.collector.dedup import DedupService, hamming, hash_content, simhash
 from app.storage.models import Article, ArticleStatus, utcnow
 
 

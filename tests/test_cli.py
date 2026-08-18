@@ -1,8 +1,8 @@
 import pytest
 
 from app.cli import run_crawl_command
-from app.collector.sources import SourceConfig
 from app.collector.service import upsert_sources
+from app.collector.sources import SourceConfig
 
 
 async def test_run_crawl_sync_unknown_source_raises(settings, session_factory, redis):

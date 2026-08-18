@@ -1,6 +1,5 @@
 from app.storage.models import ArticleStatus
 
-
 VALID_TRANSITIONS: dict[ArticleStatus, set[ArticleStatus]] = {
     ArticleStatus.PENDING: {ArticleStatus.CRAWLED, ArticleStatus.FAILED, ArticleStatus.DEAD_LETTER},
     ArticleStatus.CRAWLED: {ArticleStatus.SUMMARIZED, ArticleStatus.FAILED, ArticleStatus.DEAD_LETTER},

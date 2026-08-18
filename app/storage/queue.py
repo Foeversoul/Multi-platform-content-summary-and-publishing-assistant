@@ -1,7 +1,7 @@
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
@@ -68,12 +68,12 @@ async def receive_one(
     except Exception:
         session.rollback()
         log.status = EventStatus.DEAD
-        log.processed_at = datetime.now(timezone.utc)
+        log.processed_at = datetime.now(UTC)
         session.commit()
         await redis.xack(stream, group, msg_id)
         raise
     log.status = EventStatus.PROCESSED if outcome in ("ok", "noop") else EventStatus.DEAD
-    log.processed_at = datetime.now(timezone.utc)
+    log.processed_at = datetime.now(UTC)
     session.commit()
     await redis.xack(stream, group, msg_id)
     return True

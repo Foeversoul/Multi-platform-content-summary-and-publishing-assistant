@@ -28,5 +28,5 @@ async def fetch_robots_text(client, base_url: str, user_agent: str) -> str | Non
             return None
         resp.raise_for_status()
         return resp.text
-    except Exception:
+    except Exception:  # noqa: BLE001 — robots 获取失败不阻塞抓取，按允许处理
         return None

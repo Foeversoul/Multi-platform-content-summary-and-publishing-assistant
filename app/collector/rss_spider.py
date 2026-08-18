@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import feedparser
 from bs4 import BeautifulSoup
@@ -32,7 +32,7 @@ class RssSpider:
                 continue
             title = html_to_text(entry.get("title", "")) or source.url
             parsed = entry.get("published_parsed") or entry.get("updated_parsed")
-            publish_time = datetime(*parsed[:6], tzinfo=timezone.utc) if parsed else None
+            publish_time = datetime(*parsed[:6], tzinfo=UTC) if parsed else None
             candidates.append(
                 Candidate(
                     url=entry.get("link") or source.url,
