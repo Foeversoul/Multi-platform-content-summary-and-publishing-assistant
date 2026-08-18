@@ -29,3 +29,26 @@ async def test_rss_spider_parses_entries(settings, tmp_path: Path):
     assert candidates[0].title == "第一条新闻"
     assert "摘要" in candidates[0].text
     assert candidates[0].publish_time is not None
+
+
+async def test_rss_spider_content_and_no_link(settings, tmp_path: Path):
+    feed = tmp_path / "feed-content.xml"
+    feed.write_text("""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>
+  <item>
+    <title>带正文条目</title>
+    <link>https://example.com/full</link>
+    <content:encoded><![CDATA[<p>完整正文内容。</p>]]></content:encoded>
+  </item>
+  <item>
+    <title>无链接条目</title>
+    <description>无链接摘要内容</description>
+  </item>
+</channel></rss>""", encoding="utf-8")
+    source = SourceConfig(id="r2", name="RSS", type="rss", url=str(feed))
+    spider = RssSpider(settings)
+    candidates = await spider.fetch(source)
+    assert len(candidates) == 2
+    assert "完整正文内容" in candidates[0].text
+    assert candidates[0].url == "https://example.com/full"
+    assert candidates[1].url == str(feed)  # 无链接时回退到源 URL

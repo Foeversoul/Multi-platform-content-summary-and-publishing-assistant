@@ -57,3 +57,47 @@ async def test_web_spider_retries_5xx(settings):
     candidates = await spider.fetch(source)
     assert len(candidates) == 1
     assert calls["n"] == 3
+
+
+async def test_web_spider_robots_disallowed(settings):
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nDisallow: /\n", request=request)
+        return httpx.Response(200, text=HTML, request=request)
+
+    spider = WebSpider(settings, transport=httpx.MockTransport(handler))
+    source = SourceConfig(id="w4", name="网页", type="web", url="https://example.com/blocked")
+    with pytest.raises(FetchError):
+        await spider.fetch(source)
+
+
+async def test_web_spider_domain_paused(settings):
+    spider = WebSpider(settings, transport=httpx.MockTransport(lambda r: httpx.Response(200, text=HTML, request=r)))
+    spider.pauses.pause("example.com")
+    source = SourceConfig(id="w5", name="网页", type="web", url="https://example.com/a")
+    with pytest.raises(FetchError):
+        await spider.fetch(source)
+
+
+async def test_web_spider_render_unsupported(settings):
+    spider = WebSpider(settings, transport=httpx.MockTransport(lambda r: httpx.Response(200, text=HTML, request=r)))
+    source = SourceConfig(id="w6", name="网页", type="web", url="https://example.com/a", render=True)
+    with pytest.raises(FetchError):
+        await spider.fetch(source)
+
+
+async def test_web_spider_network_error_fails_after_retries(settings):
+    def handler(request):
+        raise httpx.ConnectError("boom", request=request)
+
+    spider = WebSpider(settings, transport=httpx.MockTransport(handler))
+    source = SourceConfig(id="w7", name="网页", type="web", url="https://example.com/net")
+    with pytest.raises(FetchError):
+        await spider.fetch(source)
+
+
+async def test_web_spider_empty_text_returns_no_candidates(settings):
+    empty_html = "<html><head><title>空页</title></head><body><nav>导航</nav></body></html>"
+    spider = WebSpider(settings, transport=httpx.MockTransport(lambda r: httpx.Response(200, text=empty_html, request=r)))
+    source = SourceConfig(id="w8", name="网页", type="web", url="https://example.com/empty")
+    assert await spider.fetch(source) == []

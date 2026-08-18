@@ -65,3 +65,54 @@ async def test_build_registry_handles_crawl_requested(session_factory, redis, se
     outcome = await registry.dispatch("crawl.requested", {"source_id": "missing"}, session, retries=0)
     assert outcome == "dead"
     session.close()
+
+
+async def test_crawl_source_unknown_type_raises(session_factory, redis, settings):
+    from app.collector.base import Candidate
+
+    class FakeSpider:
+        source_type = "rss"
+
+        async def fetch(self, source):
+            return [Candidate(url="https://x/r", title="R", text="rss 文本")]
+
+    service = CollectorService(settings, redis, spiders={"rss": FakeSpider()})
+    session = session_factory()
+    source = SourceConfig(id="w1", name="网页", type="web", url="https://x/a")
+    try:
+        await service.crawl_source(session, source)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unknown source type should raise")
+    session.close()
+
+
+async def test_crawl_by_id_disabled_source_returns_empty(session_factory, redis, settings):
+    session = session_factory()
+    upsert_sources(session, [SourceConfig(id="off", name="关", type="rss", url="https://x/feed", enabled=False)])
+    service = CollectorService(settings, redis)
+    assert await service.crawl_by_id(session, "off") == []
+    session.close()
+
+
+async def test_crawl_source_skips_duplicates(session_factory, redis, settings):
+    from app.collector.base import Candidate
+
+    class FakeSpider:
+        source_type = "web"
+
+        async def fetch(self, source):
+            return [Candidate(url="https://x/dup", title="重复", text="重复正文内容。")]
+
+    class AlwaysDuplicate:
+        def is_duplicate(self, session, url, content_hash, simhash_value):
+            return True
+
+    service = CollectorService(settings, redis, spiders={"web": FakeSpider()}, dedup=AlwaysDuplicate())
+    session = session_factory()
+    source = SourceConfig(id="w1", name="网页", type="web", url="https://x/dup")
+    assert await service.crawl_source(session, source) == []
+    assert session.scalars(select(Article)).all() == []
+    assert await redis.xlen(settings.event_stream) == 0
+    session.close()

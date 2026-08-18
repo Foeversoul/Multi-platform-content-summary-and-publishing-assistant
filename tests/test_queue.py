@@ -45,3 +45,21 @@ async def test_receive_no_message(redis, session_factory):
 
     assert await receive_one(redis, session, "g1", "c1", dispatch, "s:empty") is False
     session.close()
+
+
+async def test_receive_dispatch_exception_marks_dead(redis, session_factory):
+    session = session_factory()
+
+    async def bad_dispatch(event_type, payload, session):
+        raise RuntimeError("boom")
+
+    event_id = await emit_event(redis, session, "evt", {"x": 1}, "s:events")
+    try:
+        await receive_one(redis, session, "g1", "c1", bad_dispatch, "s:events")
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("should re-raise")
+    log = session.get(EventLog, event_id)
+    assert log.status == EventStatus.DEAD
+    session.close()

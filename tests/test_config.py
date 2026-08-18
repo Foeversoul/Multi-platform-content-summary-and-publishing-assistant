@@ -1,3 +1,5 @@
+from pydantic import ValidationError
+
 from app.collector.sources import load_sources
 from app.config import Settings
 
@@ -38,7 +40,11 @@ def test_invalid_source_type_rejected(tmp_path):
     p.write_text("sources:\n  - id: x\n    name: x\n    type: ftp\n    url: http://a\n", encoding="utf-8")
     try:
         load_sources(p)
-    except Exception as exc:
+    except ValidationError as exc:
         assert "type" in str(exc)
     else:
         raise AssertionError("ftp type should be rejected")
+
+
+def test_load_sources_missing_file_returns_empty(tmp_path):
+    assert load_sources(tmp_path / "nope.yaml") == []

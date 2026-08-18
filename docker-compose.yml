@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: assistant
+      POSTGRES_PASSWORD: assistant
+      POSTGRES_DB: assistant
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U assistant"]
+      interval: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  worker:
+    build: .
+    command: sh -c "alembic upgrade head && python -m app.worker"
+    environment:
+      ASSISTANT_DATABASE_URL: postgresql+psycopg://assistant:assistant@postgres:5432/assistant
+      ASSISTANT_REDIS_URL: redis://redis:6379/0
+      ASSISTANT_SOURCES_FILE: /app/sources.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes: ["./sources.yaml:/app/sources.yaml:ro", "./data:/app/data"]
+
+volumes:
+  pgdata:
