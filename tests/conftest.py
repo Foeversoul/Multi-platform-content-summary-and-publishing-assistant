@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import fakeredis
+import fakeredis.aioredis
 import pytest
 
 from app.config import Settings
@@ -22,3 +24,11 @@ def settings(tmp_path: Path) -> Settings:
 @pytest.fixture
 def session_factory():
     return build_session_factory("sqlite:///:memory:")
+
+
+@pytest.fixture
+async def redis():
+    server = fakeredis.FakeServer()
+    client = fakeredis.aioredis.FakeRedis(server=server)
+    yield client
+    await client.aclose()
