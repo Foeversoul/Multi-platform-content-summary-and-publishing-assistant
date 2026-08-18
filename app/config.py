@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     llm_model: str = "deepseek-chat"
     llm_timeout_seconds: float = 60.0
     llm_max_tokens: int = 2048
+    platforms_file: Path = Path("platforms.yaml")
+    sensitive_words_file: Path | None = None
+    ad_words_file: Path | None = None
 
     model_config = {"env_file": ".env", "env_prefix": "ASSISTANT_"}
 

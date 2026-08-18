@@ -1,0 +1,24 @@
+platforms:
+  weibo:
+    name: 微博
+    min_chars: 1
+    max_chars: 140
+    min_tags: 1
+    max_tags: 3
+    style_prompt: "微博风格：核心信息先行，倒金字塔，口语化，1-3个#话题#，禁用长从句和标题党。"
+  moments:
+    name: 朋友圈
+    min_chars: 60
+    max_chars: 200
+    min_emojis: 1
+    max_emojis: 3
+    style_prompt: "朋友圈风格：第一人称分享视角，生活化真诚，60-200字，可加1-3个emoji，禁用硬广和营销腔。"
+  xhs:
+    name: 小红书
+    min_chars: 100
+    max_chars: 500
+    min_tags: 2
+    max_tags: 5
+    min_emojis: 1
+    max_emojis: 3
+    style_prompt: "小红书风格：第一人称种草分享，标题行作首行，100-500字，2-5个#话题#和1-3个emoji，禁用硬广和导流。"
