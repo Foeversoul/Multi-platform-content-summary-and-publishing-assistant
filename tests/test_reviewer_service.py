@@ -1,6 +1,6 @@
 from app.adapter.platforms import PlatformConfig
 from app.reviewer.service import ReviewerService, register_reviewer_handlers
-from app.storage.models import Article, ArticleStatus, PlatformCopy, Review, Summary, SummaryStatus, Verdict
+from app.storage.models import Article, ArticleStatus, PlatformCopy, Summary, SummaryStatus, Verdict
 
 
 def _platforms():
