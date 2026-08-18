@@ -1,3 +1,4 @@
+from app.orchestrator.state import InvalidTransitionError
 from app.processor.service import ProcessorService, register_processor_handlers
 from app.storage.models import Article, ArticleStatus, SummaryStatus
 
@@ -56,7 +57,7 @@ async def test_process_article_invalid_state_raises(session_factory, redis, sett
     service = ProcessorService(settings, redis, provider=FakeProvider())
     try:
         await service.process_article(session, art.id)
-    except Exception:
+    except InvalidTransitionError:
         pass
     else:
         raise AssertionError("invalid transition should raise")
