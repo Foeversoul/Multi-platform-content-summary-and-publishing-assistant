@@ -22,3 +22,7 @@
 - 平台规范：微博 1~140 字+1~3 标签；朋友圈 60~200 字+emoji；小红书 100~500 字+2~5 标签+emoji（见 `platforms.yaml`）
 - 合规：敏感词/广告法违禁词命中即标记；可配置 `ASSISTANT_SENSITIVE_WORDS_FILE` / `ASSISTANT_AD_WORDS_FILE`
 - 审核：`style_score` 0-100（≥80 视为 4/5），所有文案默认进入待人工审核
+
+## S4：Web 审核台
+启动：`python -m uvicorn app.web.main:app --host 127.0.0.1 --port 8000`
+- `/` 待审列表；`/copy/{id}` 预览+复制；标记发布/驳回；`/status` 运行状态

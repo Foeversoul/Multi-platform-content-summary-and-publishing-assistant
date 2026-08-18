@@ -32,6 +32,7 @@ include = ["app*"]
 asyncio_mode = "auto"
 addopts = "-p no:cacheprovider"
 testpaths = ["tests"]
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
 
 [tool.ruff]
 line-length = 120
