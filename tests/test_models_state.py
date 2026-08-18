@@ -9,6 +9,8 @@ from app.storage.models import (
     EventLog,
     EventStatus,
     PlatformCopy,
+    Publish,
+    PublishStatus,
     Review,
     Source,
     Summary,
@@ -98,4 +100,23 @@ def test_copy_and_review_crud(session_factory):
     row = session.scalar(select(Review).where(Review.copy_id == copy.id))
     assert row.verdict == Verdict.PENDING
     assert row.scores["style_score"] == 90
+    session.close()
+
+
+def test_publish_crud(session_factory):
+    session = session_factory()
+    art = Article(url="https://x/pb1", title="t", text="正文", content_hash="c", simhash_value=1, status=ArticleStatus.REVIEWED)
+    session.add(art)
+    session.flush()
+    summary = Summary(article_id=art.id, summary_text="摘要" * 30, key_points=["a"], short_title="t", scores={}, status=SummaryStatus.SUMMARIZED)
+    session.add(summary)
+    session.flush()
+    copy = PlatformCopy(summary_id=summary.id, platform="weibo", text="文案", status=CopyStatus.REVIEWED)
+    session.add(copy)
+    session.flush()
+    publish = Publish(copy_id=copy.id, status=PublishStatus.PUBLISHED, published_at=utcnow())
+    session.add(publish)
+    session.commit()
+    row = session.scalar(select(Publish).where(Publish.copy_id == copy.id))
+    assert row.status == PublishStatus.PUBLISHED
     session.close()

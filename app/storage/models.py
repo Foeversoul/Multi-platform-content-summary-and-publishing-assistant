@@ -49,6 +49,12 @@ class Verdict(StrEnum):
     REJECT = "reject"
 
 
+class PublishStatus(StrEnum):
+    PENDING = "pending"
+    PUBLISHED = "published"
+    SKIPPED = "skipped"
+
+
 class Source(Base):
     __tablename__ = "source"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -119,4 +125,13 @@ class Review(Base):
     verdict: Mapped[str] = mapped_column(String(16), default=Verdict.PENDING)
     scores: Mapped[dict] = mapped_column(JSON)
     comment: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Publish(Base):
+    __tablename__ = "publish"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    copy_id: Mapped[int] = mapped_column(ForeignKey("platform_copy.id"), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(16), default=PublishStatus.PENDING)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
