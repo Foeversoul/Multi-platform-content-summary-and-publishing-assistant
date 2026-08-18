@@ -29,6 +29,11 @@ def test_invalid_transition_raises():
         transition(ArticleStatus.PENDING, ArticleStatus.PUBLISHED)
 
 
+def test_dead_letter_manual_outlets():
+    transition(ArticleStatus.DEAD_LETTER, ArticleStatus.PENDING)
+    transition(ArticleStatus.DEAD_LETTER, ArticleStatus.REJECTED)
+
+
 def test_source_article_event_crud(session_factory):
     session = session_factory()
     src = Source(external_id="demo", name="示例", type="rss", url="https://x/feed")
