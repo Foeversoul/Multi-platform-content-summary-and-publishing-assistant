@@ -25,6 +25,11 @@ class Settings(BaseSettings):
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
     ]
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.deepseek.com/v1"
+    llm_model: str = "deepseek-chat"
+    llm_timeout_seconds: float = 60.0
+    llm_max_tokens: int = 2048
 
     model_config = {"env_file": ".env", "env_prefix": "ASSISTANT_"}
 
