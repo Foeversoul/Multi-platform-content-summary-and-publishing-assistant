@@ -582,6 +582,7 @@ async def test_receive_dispatch_and_idempotency(redis, session_factory):
 
     async def dispatch(event_type, payload, session):
         seen.append((event_type, payload["source_id"]))
+        return "ok"
 
     event_id = await emit_event(redis, session, "crawl.requested", {"source_id": "demo"}, "s:events")
     ok1 = await receive_one(redis, session, "g1", "c1", dispatch, "s:events")
@@ -702,14 +703,14 @@ async def receive_one(
 ```python
 # tests/conftest.py（追加）
 import fakeredis
+import fakeredis.aioredis
 import pytest
-from redis.asyncio import Redis
 
 
 @pytest.fixture
 async def redis():
     server = fakeredis.FakeServer()
-    client = Redis(connection_pool=fakeredis.FakeConnectionPool(server=server))
+    client = fakeredis.aioredis.FakeRedis(server=server)
     yield client
     await client.aclose()
 ```
