@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -29,6 +29,12 @@ class EventStatus(StrEnum):
     QUEUED = "queued"
     PROCESSED = "processed"
     DEAD = "dead"
+
+
+class SummaryStatus(StrEnum):
+    PENDING = "pending"
+    SUMMARIZED = "summarized"
+    FAILED = "failed"
 
 
 class Source(Base):
@@ -68,3 +74,16 @@ class EventLog(Base):
     status: Mapped[str] = mapped_column(String(32), default=EventStatus.QUEUED, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Summary(Base):
+    __tablename__ = "summary"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    article_id: Mapped[int] = mapped_column(ForeignKey("article.id"), unique=True, index=True)
+    summary_text: Mapped[str] = mapped_column(Text)
+    key_points: Mapped[list] = mapped_column(JSON)
+    short_title: Mapped[str] = mapped_column(String(200))
+    scores: Mapped[dict] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default=SummaryStatus.PENDING, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

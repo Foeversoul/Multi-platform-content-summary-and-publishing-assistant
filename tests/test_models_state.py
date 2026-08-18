@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import select
 
 from app.orchestrator.state import InvalidTransitionError, transition
-from app.storage.models import Article, ArticleStatus, EventLog, EventStatus, Source, utcnow
+from app.storage.models import Article, ArticleStatus, EventLog, EventStatus, Source, Summary, SummaryStatus, utcnow
 
 
 def test_valid_transition():
@@ -36,4 +36,26 @@ def test_source_article_event_crud(session_factory):
     assert len(rows) == 1
     assert rows[0].status == ArticleStatus.PENDING
     assert session.scalar(select(EventLog).where(EventLog.id == "e1")).status == EventStatus.QUEUED
+    session.close()
+
+
+def test_summary_crud(session_factory):
+    session = session_factory()
+    art = Article(url="https://x/s1", title="标题", text="正文", content_hash="c", simhash_value=1, status=ArticleStatus.CRAWLED)
+    session.add(art)
+    session.flush()
+    summary = Summary(
+        article_id=art.id,
+        summary_text="这是摘要内容，长度符合规范。",
+        key_points=["要点一", "要点二", "要点三"],
+        short_title="精简标题",
+        scores={"summary_len": 15},
+        status=SummaryStatus.SUMMARIZED,
+    )
+    session.add(summary)
+    session.commit()
+    row = session.scalar(select(Summary).where(Summary.article_id == art.id))
+    assert row.key_points == ["要点一", "要点二", "要点三"]
+    assert row.scores["summary_len"] == 15
+    assert row.status == SummaryStatus.SUMMARIZED
     session.close()
