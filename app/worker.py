@@ -3,10 +3,12 @@ import os
 
 from redis.asyncio import Redis
 
+from app.adapter.service import register_adapter_handlers
 from app.collector.service import build_registry, upsert_sources
 from app.collector.sources import load_sources
 from app.config import get_settings
 from app.processor.service import register_processor_handlers
+from app.reviewer.service import register_reviewer_handlers
 from app.storage.db import build_session_factory
 from app.storage.queue import receive_one
 
@@ -31,6 +33,8 @@ async def main() -> None:
     redis = Redis.from_url(settings.redis_url)
     registry = build_registry(settings, redis)
     register_processor_handlers(registry, settings, redis)
+    register_adapter_handlers(registry, settings, redis)
+    register_reviewer_handlers(registry, settings, redis)
     while True:
         processed = await run_once(registry, settings, redis, session_factory)
         if not processed:
