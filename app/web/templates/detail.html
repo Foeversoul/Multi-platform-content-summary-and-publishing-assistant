@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}文案详情 · 内容助手{% endblock %}
+{% block content %}
+<p><a href="/">← 返回待审列表</a></p>
+<h2>{{ article.title }}</h2>
+<h3>标准摘要</h3>
+<p>{{ summary.summary_text }}</p>
+<p class="scores">要点：{{ summary.key_points | join("；") }} · 精简标题：{{ summary.short_title }}</p>
+<h3>平台文案（{{ copy.platform }}）</h3>
+<blockquote style="white-space: pre-wrap">{{ copy.text }}</blockquote>
+<button data-text="{{ copy.text }}" onclick="copyText(this)">复制文案</button>
+<h3>评分</h3>
+<p class="scores">风格分：{{ review.scores.get("style_score") }} · 字数：{{ review.scores.get("length") }}（合规：{{ review.scores.get("length_ok") }}）
+  · 敏感词命中：{{ review.scores.get("sensitive_hits", []) | join("、") or "无" }}
+  · 广告法命中：{{ review.scores.get("ad_hits", []) | join("、") or "无" }}</p>
+{% if publish and publish.status.value == "published" %}
+<p>已标记发布（{{ publish.published_at }}）。</p>
+{% else %}
+<div class="actions">
+  <form method="post" action="/copy/{{ copy.id }}/publish"><button>标记已发布</button></form>
+  <form method="post" action="/copy/{{ copy.id }}/reject">
+    <input name="comment" placeholder="驳回原因（可选）"><button>驳回</button>
+  </form>
+</div>
+{% endif %}
+<script>
+function copyText(btn) {
+  navigator.clipboard.writeText(btn.getAttribute('data-text')).then(function () {
+    btn.textContent = '已复制';
+  });
+}
+</script>
+{% endblock %}

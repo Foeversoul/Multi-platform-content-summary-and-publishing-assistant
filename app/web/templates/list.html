@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}待审列表 · 内容助手{% endblock %}
+{% block content %}
+<h2>待人工审核文案</h2>
+{% if rows %}
+<table>
+  <tr><th>平台</th><th>精简标题</th><th>文案</th><th>风格分</th><th>操作</th></tr>
+  {% for review, copy, summary, article in rows %}
+  <tr>
+    <td>{{ copy.platform }}</td>
+    <td>{{ summary.short_title }}</td>
+    <td>{{ copy.text[:60] }}{% if copy.text|length > 60 %}…{% endif %}</td>
+    <td>{{ review.scores.get("style_score", "-") }}</td>
+    <td><a href="/copy/{{ copy.id }}">查看/发布</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p>暂无待审文案。</p>
+{% endif %}
+{% endblock %}

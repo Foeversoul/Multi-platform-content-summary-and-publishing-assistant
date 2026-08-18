@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}运行状态 · 内容助手{% endblock %}
+{% block content %}
+<h2>运行状态</h2>
+<h3>任务队列</h3>
+<p>Redis 队列长度：{{ queue_len }} · 待人工审核：{{ pending_reviews }}</p>
+<h3>文章状态</h3>
+<table>
+  <tr><th>状态</th><th>数量</th></tr>
+  {% for status, count in article_counts.items() %}
+  <tr><td>{{ status }}</td><td>{{ count }}</td></tr>
+  {% else %}
+  <tr><td colspan="2">无</td></tr>
+  {% endfor %}
+</table>
+<h3>文案状态</h3>
+<table>
+  <tr><th>状态</th><th>数量</th></tr>
+  {% for status, count in copy_counts.items() %}
+  <tr><td>{{ status }}</td><td>{{ count }}</td></tr>
+  {% else %}
+  <tr><td colspan="2">无</td></tr>
+  {% endfor %}
+</table>
+<h3>事件日志</h3>
+<table>
+  <tr><th>状态</th><th>数量</th></tr>
+  {% for status, count in event_counts.items() %}
+  <tr><td>{{ status }}</td><td>{{ count }}</td></tr>
+  {% else %}
+  <tr><td colspan="2">无</td></tr>
+  {% endfor %}
+</table>
+<h3>最近事件</h3>
+<ul>
+  {% for event in recent_events %}
+  <li>{{ event.event_type }} · {{ event.status }} · {{ event.created_at }}</li>
+  {% else %}
+  <li>无</li>
+  {% endfor %}
+</ul>
+{% endblock %}

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}内容助手审核台{% endblock %}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 0 auto; padding: 16px; color: #222; }
+    nav a { margin-right: 12px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
+    button { cursor: pointer; }
+    .scores { font-size: 13px; color: #555; }
+    .actions form { display: inline; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <nav><a href="/">待审列表</a><a href="/status">运行状态</a></nav>
+  <hr>
+  {% block content %}{% endblock %}
+</body>
+</html>
