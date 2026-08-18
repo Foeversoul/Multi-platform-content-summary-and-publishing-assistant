@@ -4,7 +4,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.collector.dedup import DedupService, hash_content, simhash
+from app.collector.dedup import DedupService, hash_content, simhash, to_signed
 from app.collector.rss_spider import RssSpider
 from app.collector.sources import SourceConfig
 from app.collector.web_spider import WebSpider
@@ -74,7 +74,7 @@ class CollectorService:
                 publish_time=cand.publish_time,
                 text=cand.text,
                 content_hash=ch,
-                simhash_value=sh,
+                simhash_value=to_signed(sh),
                 status=ArticleStatus.PENDING,
             )
             session.add(article)

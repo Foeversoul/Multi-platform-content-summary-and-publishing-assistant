@@ -43,6 +43,7 @@ class SkillRegistry:
                 return "ok"
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
+                session.rollback()
                 if attempt < retries:
                     await asyncio.sleep(base_seconds * (2**attempt))
         article_id = payload.get("article_id")
