@@ -7,6 +7,7 @@ from app.adapter.service import register_adapter_handlers
 from app.collector.service import build_registry, upsert_sources
 from app.collector.sources import load_sources
 from app.config import get_settings
+from app.log import setup_logging
 from app.processor.service import register_processor_handlers
 from app.reviewer.service import register_reviewer_handlers
 from app.storage.db import build_session_factory
@@ -27,6 +28,7 @@ async def run_once(registry, settings, redis: Redis, session_factory) -> bool:
 
 async def main() -> None:
     settings = get_settings()
+    setup_logging(settings.data_dir / "logs")
     session_factory = build_session_factory(settings.database_url)
     with session_factory() as session:
         upsert_sources(session, load_sources(settings.sources_file))
