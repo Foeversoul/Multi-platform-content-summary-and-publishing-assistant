@@ -1,4 +1,5 @@
 .superpowers/
+.worktrees/
 data/
 .env
 __pycache__/
