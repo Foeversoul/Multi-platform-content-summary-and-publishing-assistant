@@ -1267,7 +1267,10 @@ class WebSpider:
         doc = Document(html)
         title = normalize_text(doc.title() or source.url)
         summary_html = doc.summary(html_partial=True)
-        text = normalize_text(BeautifulSoup(summary_html, "html.parser").get_text(" ", strip=True))
+        soup = BeautifulSoup(summary_html, "html.parser")
+        for tag in soup(["nav", "footer", "aside", "form"]):
+            tag.decompose()
+        text = normalize_text(soup.get_text(" ", strip=True))
         if not text:
             return []
         return [Candidate(url=source.url, title=title[:500], text=text)]
