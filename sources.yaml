@@ -1,0 +1,11 @@
+sources:
+  - id: demo-news
+    name: 示例新闻
+    type: rss
+    url: https://example.com/feed.xml
+    frequency_minutes: 60
+  - id: demo-blog
+    name: 示例博客
+    type: web
+    url: https://example.com/blog
+    frequency_minutes: 120
