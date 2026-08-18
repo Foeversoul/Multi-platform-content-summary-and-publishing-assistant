@@ -64,10 +64,10 @@ class WebSpider:
         ua = self._ua()
         headers = {"User-Agent": ua}
         async with httpx.AsyncClient(headers=headers, transport=self.transport, follow_redirects=True) as client:
+            await self.limiter.wait(source.url)
             robots_text = await fetch_robots_text(client, source.url, ua)
             if robots_text is not None and not RobotsPolicy.from_text(robots_text).can_fetch(ua, source.url):
                 raise FetchError(f"robots.txt disallows: {source.url}")
-            await self.limiter.wait(source.url)
             html = await self._get_with_retry(client, source.url)
         doc = Document(html)
         title = normalize_text(doc.title() or source.url)
