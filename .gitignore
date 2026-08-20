@@ -5,6 +5,8 @@ data/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest-tmp/
+*.egg-info/
 .venv/
 venv/
 .coverage
@@ -12,3 +14,6 @@ htmlcov/
 .idea/
 .vscode/
 *.log
+
+# 本地个人资料/规划文档（不进公开仓库）
+项目准备/

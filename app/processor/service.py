@@ -1,4 +1,5 @@
 from app.config import Settings
+from app.events import EVENT_ARTICLE_CRAWLED, EVENT_SUMMARY_GENERATED
 from app.orchestrator.registry import SkillRegistry
 from app.orchestrator.state import transition
 from app.processor.clean import clean_text, remove_noise_sentences, split_sentences
@@ -41,7 +42,7 @@ class ProcessorService:
         session.add(summary)
         session.flush()
         article.status = ArticleStatus.SUMMARIZED
-        await emit_event(self.redis, session, "summary.generated", {"summary_id": summary.id}, self.settings.event_stream)
+        await emit_event(self.redis, session, EVENT_SUMMARY_GENERATED, {"summary_id": summary.id}, self.settings.event_stream)
         session.commit()
         return summary
 
@@ -52,4 +53,4 @@ def register_processor_handlers(registry: SkillRegistry, settings: Settings, red
     async def on_article_crawled(payload: dict, session) -> None:
         await service.process_article(session, payload["article_id"])
 
-    registry.register("article.crawled", on_article_crawled)
+    registry.register(EVENT_ARTICLE_CRAWLED, on_article_crawled)

@@ -9,3 +9,26 @@ sources:
     type: web
     url: https://example.com/blog
     frequency_minutes: 120
+  # OpenCLI 数据源：需要先安装 opencli 并配置好 Browser Bridge 扩展与已登录的 Chrome。
+  # type=opencli 时 site/command 对应 opencli 的内置适配器；args 为额外参数（如搜索词）。
+  - id: bilibili-hot
+    name: B站热榜
+    type: opencli
+    site: bilibili
+    command: hot
+    limit: 20
+    frequency_minutes: 120
+  - id: zhihu-hot
+    name: 知乎热榜
+    type: opencli
+    site: zhihu
+    command: hot
+    limit: 20
+    frequency_minutes: 120
+  - id: hacknews-top
+    name: HackerNews Top
+    type: opencli
+    site: hackernews
+    command: top
+    limit: 20
+    frequency_minutes: 120

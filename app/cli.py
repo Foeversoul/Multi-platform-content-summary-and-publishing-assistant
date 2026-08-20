@@ -6,6 +6,7 @@ from redis.asyncio import Redis
 from app.collector.service import CollectorService, upsert_sources
 from app.collector.sources import load_sources
 from app.config import Settings, get_settings
+from app.events import EVENT_CRAWL_REQUESTED
 from app.storage.db import build_session_factory
 from app.storage.queue import emit_event
 
@@ -18,7 +19,7 @@ async def run_crawl_command(args, settings: Settings, session_factory, redis: Re
             payload = {"source_id": args.source_id} if args.source_id else {"url": args.url}
             if not any(payload.values()):
                 raise ValueError("crawl requires --source-id or --url")
-            await emit_event(redis, session, "crawl.requested", payload, settings.event_stream)
+            await emit_event(redis, session, EVENT_CRAWL_REQUESTED, payload, settings.event_stream)
             return []
         if args.url:
             return await service.crawl_url(session, args.url)
@@ -36,12 +37,17 @@ def main(argv: list[str] | None = None) -> None:
     settings = get_settings()
     session_factory = build_session_factory(settings.database_url)
     redis = Redis.from_url(settings.redis_url)
-    try:
-        if args.command == "crawl":
-            ids = asyncio.run(run_crawl_command(args, settings, session_factory, redis))
-            print("new_article_ids:", ids)
-    finally:
-        asyncio.run(redis.aclose())
+
+    async def run() -> None:
+        # 与命令执行处于同一事件循环，避免跨循环关闭连接报错
+        try:
+            if args.command == "crawl":
+                ids = await run_crawl_command(args, settings, session_factory, redis)
+                print("new_article_ids:", ids)
+        finally:
+            await redis.aclose()
+
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

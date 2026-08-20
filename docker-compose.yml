@@ -18,18 +18,24 @@ services:
 
   app:
     build: .
-    command: sh -c "alembic upgrade head && python -m uvicorn app.web.main:app --host 0.0.0.0 --port 8000"
+    command: sh -c "alembic upgrade head && python -m uvicorn app.web.__main__:app --host 0.0.0.0 --port 8000"
     environment:
       ASSISTANT_DATABASE_URL: postgresql+psycopg://assistant:assistant@postgres:5432/assistant
       ASSISTANT_REDIS_URL: redis://redis:6379/0
       ASSISTANT_SOURCES_FILE: /app/sources.yaml
       ASSISTANT_PLATFORMS_FILE: /app/platforms.yaml
+      ASSISTANT_API_TOKEN: ${ASSISTANT_API_TOKEN:-}
     ports: ["8000:8000"]
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     volumes: ["./sources.yaml:/app/sources.yaml:ro", "./platforms.yaml:/app/platforms.yaml:ro", "./data:/app/data"]
 
   worker:
@@ -39,12 +45,20 @@ services:
       ASSISTANT_DATABASE_URL: postgresql+psycopg://assistant:assistant@postgres:5432/assistant
       ASSISTANT_REDIS_URL: redis://redis:6379/0
       ASSISTANT_SOURCES_FILE: /app/sources.yaml
+      ASSISTANT_API_TOKEN: ${ASSISTANT_API_TOKEN:-}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
     volumes: ["./sources.yaml:/app/sources.yaml:ro", "./data:/app/data"]
+
+  frontend:
+    build: ./web-ui
+    ports: ["8080:80"]
+    depends_on:
+      app:
+        condition: service_healthy
 
 volumes:
   pgdata:

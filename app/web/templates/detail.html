@@ -2,6 +2,9 @@
 {% block title %}文案详情 · 内容助手{% endblock %}
 {% block content %}
 <p><a href="/">← 返回待审列表</a></p>
+{% if request.query_params.get("error") == "comment_required" %}
+<p class="error">驳回失败：驳回理由不能为空（AC-IF-02）。</p>
+{% endif %}
 <h2>{{ article.title }}</h2>
 <h3>标准摘要</h3>
 <p>{{ summary.summary_text }}</p>
@@ -19,7 +22,7 @@
 <div class="actions">
   <form method="post" action="/copy/{{ copy.id }}/publish"><button>标记已发布</button></form>
   <form method="post" action="/copy/{{ copy.id }}/reject">
-    <input name="comment" placeholder="驳回原因（可选）"><button>驳回</button>
+    <input name="comment" placeholder="驳回原因（必填）" required><button>驳回</button>
   </form>
 </div>
 {% endif %}

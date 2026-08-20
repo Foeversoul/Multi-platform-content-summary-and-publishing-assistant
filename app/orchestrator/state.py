@@ -6,7 +6,7 @@ VALID_TRANSITIONS: dict[ArticleStatus, set[ArticleStatus]] = {
     ArticleStatus.SUMMARIZED: {ArticleStatus.ADAPTED, ArticleStatus.FAILED, ArticleStatus.DEAD_LETTER},
     ArticleStatus.ADAPTED: {ArticleStatus.REVIEWED, ArticleStatus.FAILED, ArticleStatus.DEAD_LETTER},
     ArticleStatus.REVIEWED: {ArticleStatus.PUBLISHED, ArticleStatus.REJECTED},
-    ArticleStatus.FAILED: {ArticleStatus.PENDING, ArticleStatus.DEAD_LETTER},
+    ArticleStatus.FAILED: {ArticleStatus.PENDING, ArticleStatus.DEAD_LETTER, ArticleStatus.REJECTED},
     ArticleStatus.DEAD_LETTER: {ArticleStatus.PENDING, ArticleStatus.REJECTED},
     ArticleStatus.REJECTED: set(),
 }

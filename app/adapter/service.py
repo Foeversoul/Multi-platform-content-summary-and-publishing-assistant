@@ -4,6 +4,7 @@ from app.adapter.copywriter import generate_copy
 from app.adapter.platforms import load_platforms
 from app.adapter.wordlists import DEFAULT_AD_WORDS, DEFAULT_SENSITIVE_WORDS, load_wordlist
 from app.config import Settings
+from app.events import EVENT_COPY_ADAPTED, EVENT_SUMMARY_GENERATED
 from app.orchestrator.registry import SkillRegistry
 from app.orchestrator.state import transition
 from app.storage.models import Article, ArticleStatus, CopyStatus, PlatformCopy, Summary
@@ -35,7 +36,7 @@ class AdapterService:
             copy = PlatformCopy(summary_id=summary.id, platform=platform_id, text=result.text, status=CopyStatus.ADAPTED)
             session.add(copy)
             session.flush()
-            await emit_event(self.redis, session, "copy.adapted", {"copy_id": copy.id}, self.settings.event_stream)
+            await emit_event(self.redis, session, EVENT_COPY_ADAPTED, {"copy_id": copy.id}, self.settings.event_stream)
             copy_ids.append(copy.id)
         if ArticleStatus(article.status) == ArticleStatus.SUMMARIZED:
             transition(ArticleStatus(article.status), ArticleStatus.ADAPTED)
@@ -50,4 +51,4 @@ def register_adapter_handlers(registry: SkillRegistry, settings: Settings, redis
     async def on_summary_generated(payload: dict, session) -> None:
         await service.adapt_summary(session, payload["summary_id"])
 
-    registry.register("summary.generated", on_summary_generated)
+    registry.register(EVENT_SUMMARY_GENERATED, on_summary_generated)

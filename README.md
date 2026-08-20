@@ -1,50 +1,157 @@
-# 多平台内容总结与发布助手（S1：调度协调 + 信息采集）
+# 多平台内容总结与发布助手
 
-## 本地开发
-1. `pip install -e ".[dev]"`
-2. 复制 `.env.example` 为 `.env`，按需修改
-3. 配置 `sources.yaml`
-4. 采集一个数据源：`python -m app.cli crawl --source-id demo-news --sync`
-5. 手动提交 URL：`python -m app.cli crawl --url https://example.com/article --sync`
-6. 跑测试：`python -m pytest`
+基于事件总线的多智能体内容流水线：**采集 → 处理 → 适配 → 审核 → 发布**，附 Vue 3 Web 审核台与 URL 上传爬取控制台。
 
-## Docker 部署（S1）
-`docker compose up -d postgres redis worker`
+## 架构总览
 
-## S2：内容处理
-- 事件：`article.crawled` → 生成 `summary` → 发出 `summary.generated`
-- 摘要标准：200~400 字；要点 3~5 条（≤60 字）；标题 ≤30 字
-- LLM：默认 DeepSeek，配置 `.env` 的 `ASSISTANT_LLM_API_KEY`；失败自动回退抽取式摘要
-- 质量：摘要长度/要点数/实体保留率/平均句长自动评分，写入 `summary.scores`
-
-## S3：内容适配 + 质量审核
-- 事件：`summary.generated` → 三平台文案 `platform_copy` → `copy.adapted` → 自动评分 `review`（verdict=pending 待人工）
-- 平台规范：微博 1~140 字+1~3 标签；朋友圈 60~200 字+emoji；小红书 100~500 字+2~5 标签+emoji（见 `platforms.yaml`）
-- 合规：敏感词/广告法违禁词命中即标记；可配置 `ASSISTANT_SENSITIVE_WORDS_FILE` / `ASSISTANT_AD_WORDS_FILE`
-- 审核：`style_score` 0-100（≥80 视为 4/5），所有文案默认进入待人工审核
-
-## S4：Web 审核台
-启动：`python -m uvicorn app.web.main:app --host 127.0.0.1 --port 8000`
-- `/` 待审列表；`/copy/{id}` 预览+复制；标记发布/驳回；`/status` 运行状态
-
-## S5：运维优化
-- 日志：worker 启动自动写入 `data/logs/app.log`（轮转 5MB×3），structlog JSON 格式
-- 死信兜底：`/failed` 页列出 failed/dead_letter，可"重跑"（重置 pending 重新采集）或"放弃"（dead_letter→rejected）
-
-### 接入新数据源
-在 `sources.yaml` 增加条目（type: rss 或 web、url、frequency_minutes），实现对应 `SpiderInterface`（现有 rss/web 均已实现），配置即插即用。
-
-### 接入新平台
-在 `platforms.yaml` 增加条目（字数/标签/emoji/style_prompt），适配器按配置生成文案，配置即插即用。
-
-### 覆盖率补跑（正常环境）
-```bash
-coverage run --source=app -m pytest
-coverage report --omit='app/cli.py,app/worker.py' --fail-under=80
+```
+┌──────────────┐  crawl.requested  ┌──────────────┐  article.crawled  ┌──────────────┐
+│ 调度协调智能体 │ ────────────────▶ │  信息采集智能体  │ ────────────────▶ │ 内容处理智能体 │
+└──────────────┘                    └──────────────┘                    └──────────────┘
+                                                                              │ summary.generated
+┌──────────────┐  review.passed    ┌──────────────┐  copy.adapted    ┌───────▼────────┐
+│ 质量审核智能体 │ ────────────────▶ │ 内容适配智能体 │ ◀─────────────── │                │
+└──────────────┘                    └──────────────┘                   └────────────────┘
 ```
 
-### 一周稳定性检查清单
-- 日志无 ERROR 持续堆积（`data/logs/app.log`）
-- 死信可在 `/failed` 人工重跑/放弃
-- Redis 队列无积压（`/status` 队列长度回落）
-- 采集成功率与端到端延迟符合指标（≥95% / <5 分钟）
+- 事件总线：Redis Streams（`assistant:events`），消费组 `workers`；事件日志落库（`event_log`）支持死信重跑/放弃
+- URL 上传爬取：`ScrapeService`（任务/条目双状态机、并发 ≤5、14 种错误分类、SSRF 防护、配额限流），成功条目自动 `emit article.crawled` 接入下游
+- 前端：`web-ui/`（Vue 3 + Vite + TypeScript + Pinia + Element Plus），包含审核台、URL 上传爬取控制台、死信/回收站管理、手动内容上传、AI 对话助手与状态看板，REST 契约见「REST API」
+
+## 本地开发
+
+环境：Python ≥3.12、Node.js ≥18（仅前端构建）、Redis ≥6（生产 7.x）。
+
+```bash
+# 1. 后端依赖
+pip install -e ".[dev]"
+
+# 2. 配置
+copy .env.example .env   # 设置 ASSISTANT_LLM_API_KEY 等
+# 配置 sources.yaml（RSS/web 源）与 platforms.yaml（平台规范）
+
+# 3. 启动后端（含 REST API 与 HTML 路由）
+python -m uvicorn app.web.__main__:app --host 127.0.0.1 --port 8000
+
+# 4. 启动 worker（消费事件链）
+python -m app.worker
+
+# 5. 启动前端（Vue 审核台，开发模式，/api 自动代理到 8000）
+cd web-ui
+npm install
+npm run dev
+# 生产构建：npm run build → 产物 dist/
+# 类型检查/单测：npm run typecheck / npm test
+```
+
+验证：浏览器打开 `http://localhost:5173`（前端）、`http://127.0.0.1:8000/docs`（Swagger）。
+
+## REST API（IF-01~13）
+
+统一响应包 `{"code": 0, "message": "ok", "data": ...}`，业务失败 `code != 0`。
+
+| 编号 | 方法 | 路径 | 说明 |
+| --- | --- | --- | --- |
+| IF-01 | GET | `/api/reviews` | 待审列表（分页/筛选/搜索） |
+| IF-02 | GET | `/api/reviews/{copy_id}` | 详情（原文/摘要/文案/评分/发布状态） |
+| IF-03 | POST | `/api/reviews/{copy_id}/publish` | 发布 |
+| IF-04 | POST | `/api/reviews/{copy_id}/reject` | 驳回（`comment` 必填） |
+| IF-05 | GET | `/api/status` | 运行状态统计 |
+| IF-06 | GET | `/api/failed` | 死信事件列表 |
+| IF-07 | POST | `/api/failed/{event_id}/retry` | 死信重跑 |
+| IF-08 | POST | `/api/failed/{event_id}/discard` | 死信放弃 |
+| IF-09 | POST | `/api/scrape/jobs` | 创建爬取任务（`{urls:[...]}`，单批 ≤1000） |
+| IF-10 | GET | `/api/scrape/jobs/{job_id}` | 任务进度与汇总（轮询） |
+| IF-11 | GET | `/api/scrape/jobs/{job_id}/items` | 任务条目明细（分页/按状态筛选） |
+| IF-12 | GET | `/api/scrape/items/{item_id}` | 单条目结果 |
+| IF-13 | POST | `/api/scrape/jobs/{job_id}/items/{item_id}/retry` | 失败条目重新提交 |
+
+爬取错误码：`INVALID_URL_FORMAT` / `UNSUPPORTED_PROTOCOL` / `DNS_FAILED` / `CONNECTION_REFUSED` / `TIMEOUT` / `SSL_ERROR` / `HTTP_403` / `HTTP_404` / `HTTP_429` / `HTTP_5XX` / `ROBOTS_BLOCKED` / `EMPTY_CONTENT` / `RENDER_UNSUPPORTED` / `DUPLICATE`。
+
+### 补充 API（内容 AI / 内容管理 / 对话）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/scrape/jobs` | 爬取任务历史列表（分页） |
+| POST | `/api/reviews/{copy_id}/summary/regenerate` | AI 重新生成摘要并级联重写各平台文案（已发布除外） |
+| PUT | `/api/reviews/{copy_id}/summary` | 手动编辑摘要（`summary_text` 必填），级联重写文案 |
+| POST | `/api/reviews/{copy_id}/copy/regenerate` | 重写单条平台文案（已发布禁止） |
+| POST | `/api/reviews/{copy_id}/copy/preview` | 按指定平台风格预览扩写（不落库） |
+| POST | `/api/reviews/batch-publish` | 一键通过全部待审核文案（仅处理 `pending`） |
+| POST | `/api/reviews/batch-delete` | 批量软删除（`copy_ids` 整数列表，移入回收站） |
+| POST | `/api/reviews/{copy_id}/delete` | 单条软删除（移入回收站） |
+| GET | `/api/recycle` | 回收站列表（已删除文案） |
+| POST | `/api/recycle/{copy_id}/restore` | 从回收站恢复 |
+| DELETE | `/api/recycle/{copy_id}` | 永久删除（连带审核/发布记录，不可恢复） |
+| POST | `/api/content/manual` | 手动上传文本/Markdown，同步完成摘要 → 扩写 → 待审 |
+| POST | `/api/content/manual/file` | 上传文件（`.txt` / `.md` / `.docx`，≤2MB）进入完整 AI 流程 |
+| POST | `/api/chat` | AI 对话助手（基于项目知识问答） |
+| GET | `/api/health` | 健康检查（DB/Redis 探针，`/api/health` 鉴权豁免） |
+
+## 主要命令
+
+```bash
+python -m app.cli crawl --source-id demo-news --sync   # 采集数据源
+python -m app.cli crawl --url https://example.com/a --sync  # 手动 URL
+python -m pytest                       # 全量测试
+python -m pytest -q tests/test_scrape_validator.py tests/test_scrape_service.py tests/test_api.py  # URL 爬取模块
+python -m ruff check app tests         # 静态检查
+coverage run -m pytest && coverage report --fail-under=80   # 覆盖率（要求 ≥80%）
+```
+
+## Docker 部署
+
+```bash
+docker compose up -d postgres redis worker app frontend
+# 前端：http://localhost:8080（nginx 托管，/api 自动反代到后端）
+# 后端：http://localhost:8000（Swagger: /docs）
+# worker 自动执行 alembic upgrade head；app 服务含健康检查（/api/health）
+```
+
+> 说明：本地开发默认使用 SQLite（见 `.env` 示例）；生产容器内置 psycopg 驱动，
+> 本地裸环境如改用 PostgreSQL 需先 `pip install "psycopg[binary]"`。
+
+## API 鉴权（可选，SEC-01 基线）
+
+设置环境变量 `ASSISTANT_API_TOKEN` 后，所有 `/api/*` 请求须携带请求头
+`X-API-Token: <token>`（`/api/health` 除外，供探针使用）。前端通过
+`VITE_API_TOKEN` 或 localStorage `api_token` 注入凭证，未配置时返回 401。
+
+## 接入新数据源 / 新平台
+
+- 新数据源：`sources.yaml` 增加条目（type: rss/web、url、frequency_minutes），实现对应 `SpiderInterface` 即插即用
+- 新平台：`platforms.yaml` 增加条目（字数/标签/emoji/style_prompt），适配器按配置生成文案
+
+### OpenCLI 数据源（增强版爬虫）
+
+内置 `RSS`/`Web` 爬虫只能抓取静态页面，遇到需要登录态或 JS 渲染的平台（B站、知乎、小红书等）会受限。
+`type: opencli` 的数据源通过 [OpenCLI](https://github.com/jackwener/OpenCLI) 命令驱动你已登录的
+Chrome 抓取这些平台，并把输出接入本项目的去重/落库/事件流水线。
+
+前置要求：Node.js ≥ 20、安装 `opencli`（`npm install -g @jackwener/opencli`）、安装 Browser Bridge
+扩展并让 `opencli doctor` 通过。配置示例（见 `sources.yaml`）：
+
+```yaml
+- id: bilibili-hot
+  name: B站热榜
+  type: opencli
+  site: bilibili
+  command: hot
+  limit: 20
+  frequency_minutes: 120
+```
+
+字段说明：`site`/`command` 对应 opencli 内置适配器（如 `bilibili hot`、`zhihu hot`、
+`xiaohongshu search`）；`limit` 自动追加 `--limit N`；`args` 透传额外参数（如搜索词）；
+`profile` 指定多 Chrome 配置文件别名；`opencli_bin` 自定义命令路径。
+
+对应命令即 `opencli <site> <command> [args] -f json`，输出会规整为标题/正文/链接/发布时间后入库。
+手动触发：`python -m app.cli crawl --source-id bilibili-hot --sync`。
+
+### URL 上传自动渲染兜底
+
+在为爬取控制台输入任意 URL 时，若目标页是 JS 渲染（如 B站排行榜这类 SPA），静态 `WebSpider`
+抓不到正文，会自动改用 `opencli web read --url <url> --stdout true` 通过已登录浏览器渲染并导出
+Markdown 后入库。该行为由 `ASSISTANT_OPENCLI_RENDER_FALLBACK` 控制（默认开启），多 Chrome 配置下
+可通过 `ASSISTANT_OPENCLI_PROFILE` 指定别名（如 `9hrejvdm`）。这样“粘贴 URL → 自动爬取正文”
+即可覆盖常规静态页面和需要 JS 渲染 / 登录态的页面。

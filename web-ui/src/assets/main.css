@@ -1,0 +1,286 @@
+/* ============================================================
+ * 全局设计系统（Design Tokens + Element Plus 主题覆盖）
+ * 主色：靛蓝（#4F6BF5）——内容/发布业务调性，与深色导航协调
+ * 层级：文本四阶 / 背景两级 / 阴影两级 / 圆角统一
+ * ============================================================ */
+
+:root {
+  /* 品牌主色 */
+  --brand-500: #4f6bf5;
+  --brand-600: #3e5ae0;
+  --brand-700: #3247c2;
+  /* 状态辅助色：成功/在线用青绿色，与主色形成双色调 */
+  --ok: #16c894;
+  --ok-soft: rgba(22, 200, 148, 0.1);
+
+  /* 文本层级 */
+  --text-1: #1d2129;
+  --text-2: #4e5969;
+  --text-3: #86909c;
+  --text-4: #c9cdd4;
+
+  /* 背景与边框 */
+  --bg-page: #f2f4f8;
+  --bg-card: #ffffff;
+  --border: #e5e8ef;
+
+  /* 阴影（悬浮/常态两级） */
+  --shadow-1: 0 1px 2px rgba(29, 33, 41, 0.04), 0 4px 12px rgba(29, 33, 41, 0.05);
+  --shadow-2: 0 6px 16px rgba(29, 33, 41, 0.08), 0 16px 40px rgba(29, 33, 41, 0.08);
+
+  /* 圆角 */
+  --radius-lg: 12px;
+  --radius-md: 8px;
+
+  /* 动效 */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ---------- Element Plus 主题覆盖（主色派生色板） ---------- */
+:root {
+  --el-color-primary: #4f6bf5;
+  --el-color-primary-light-3: #8497f8;
+  --el-color-primary-light-5: #a7b5fa;
+  --el-color-primary-light-7: #cad3fc;
+  --el-color-primary-light-8: #dce1fd;
+  --el-color-primary-light-9: #edf0fe;
+  --el-color-primary-dark-2: #3f55c4;
+  --el-border-radius-base: 6px;
+  --el-border-radius-small: 4px;
+  --el-text-color-primary: #1d2129;
+  --el-text-color-regular: #4e5969;
+  --el-text-color-secondary: #86909c;
+  --el-border-color: #e5e8ef;
+  --el-border-color-light: #eef1f6;
+  --el-border-color-lighter: #f2f4f8;
+  --el-fill-color-light: #f7f8fa;
+}
+
+/* ---------- 基础排版 ---------- */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family:
+    'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial,
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-1);
+  background: var(--bg-page);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 标题层级：页标题 → 卡片标题 → 区块小标题 */
+h1,
+h2,
+h3 {
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1.35;
+}
+h3 {
+  font-size: 17px;
+  margin: 0 0 16px;
+}
+h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin: 0 0 12px;
+}
+h5 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 14px 0 8px;
+}
+
+/* ---------- 卡片 ---------- */
+.page-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-1);
+}
+
+/* ---------- 表格与控件细节 ---------- */
+/* 表头底色 + 行 hover 增强 */
+.el-table th.el-table__cell {
+  background: var(--el-fill-color-light);
+  color: var(--text-2);
+  font-weight: 600;
+}
+.el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell {
+  background: var(--el-color-primary-light-9);
+}
+
+/* 按钮与输入框统一切换动画 */
+.el-button,
+.el-input__wrapper,
+.el-select__wrapper {
+  transition:
+    background-color 0.2s var(--ease),
+    border-color 0.2s var(--ease),
+    color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease),
+    transform 0.15s var(--ease);
+}
+.el-button:not(.is-disabled):active {
+  transform: translateY(1px);
+}
+
+/* 分页靠右 */
+.el-pagination {
+  justify-content: flex-end;
+}
+
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--text-4);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- 页面切换过渡（配合 App.vue router-view） ---------- */
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition:
+    opacity 0.22s var(--ease),
+    transform 0.22s var(--ease);
+}
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* ---------- 更新：可访问性与组件细节（2026-08） ---------- */
+:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
+.el-tag {
+  font-weight: 500;
+}
+
+/* 表头更克制的底色与分隔线 */
+.el-table th.el-table__cell {
+  background: var(--el-fill-color-light);
+  color: var(--text-2);
+  font-weight: 600;
+}
+.el-table .el-table__cell {
+  padding: 10px 0;
+}
+
+/* 空态细节 */
+.el-empty__description p {
+  color: var(--text-3);
+}
+
+/* Tabs 底部指示更清晰 */
+.el-tabs__item {
+  font-weight: 500;
+}
+
+/* 弹窗 / 抽屉圆角统一下调，贴近 8px */
+.el-dialog,
+.el-drawer {
+  border-radius: var(--radius-md);
+}
+
+/* 卡片默认边距收敛，便于信息密度更高 */
+.el-card.is-always-shadow {
+  box-shadow: var(--shadow-1);
+}
+
+/* ---------- Element Plus 弹层统一（dialog / message-box / drawer） ---------- */
+.el-overlay {
+  background: rgba(16, 20, 32, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.el-dialog {
+  border-radius: 12px;
+  box-shadow: var(--shadow-2);
+  --el-dialog-padding-primary: 24px;
+}
+.el-dialog__header {
+  margin-right: 0;
+  padding: 20px 24px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.el-dialog__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.el-dialog__headerbtn {
+  top: 16px;
+  right: 20px;
+}
+.el-dialog__body {
+  padding: 18px 24px 4px;
+  color: var(--text-2);
+}
+.el-dialog__footer {
+  padding: 14px 24px 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.el-message-box {
+  border-radius: 12px;
+  padding: 20px 24px;
+  box-shadow: var(--shadow-2);
+}
+.el-message-box__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.el-message-box__container .el-message-box__content {
+  color: var(--text-2);
+}
+.el-message-box__btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.el-drawer__header {
+  margin-bottom: 0;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-1);
+  font-size: 16px;
+  font-weight: 600;
+}
+.el-drawer__body {
+  padding: 16px 24px 24px;
+}

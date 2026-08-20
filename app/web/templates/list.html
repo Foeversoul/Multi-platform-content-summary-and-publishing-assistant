@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}待审列表 · 内容助手{% endblock %}
 {% block content %}
-<h2>待人工审核文案</h2>
+<h2>待人工审核文案（共 {{ total }} 条）</h2>
 {% if rows %}
 <table>
   <tr><th>平台</th><th>精简标题</th><th>文案</th><th>风格分</th><th>操作</th></tr>
@@ -15,6 +15,11 @@
   </tr>
   {% endfor %}
 </table>
+<nav class="pager">
+  {% if page > 1 %}<a href="/?page={{ page - 1 }}">← 上一页</a>{% endif %}
+  <span>第 {{ page }} / {{ pages }} 页</span>
+  {% if page < pages %}<a href="/?page={{ page + 1 }}">下一页 →</a>{% endif %}
+</nav>
 {% else %}
 <p>暂无待审文案。</p>
 {% endif %}

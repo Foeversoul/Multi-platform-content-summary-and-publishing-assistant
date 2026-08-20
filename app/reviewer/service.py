@@ -4,6 +4,7 @@ from app.adapter.compliance import check_compliance
 from app.adapter.platforms import load_platforms
 from app.adapter.wordlists import DEFAULT_AD_WORDS, DEFAULT_SENSITIVE_WORDS, load_wordlist
 from app.config import Settings
+from app.events import EVENT_COPY_ADAPTED, EVENT_REVIEW_PASSED
 from app.orchestrator.registry import SkillRegistry
 from app.orchestrator.state import transition
 from app.reviewer.quality import score_copy
@@ -44,7 +45,7 @@ class ReviewerService:
         await emit_event(
             self.redis,
             session,
-            "review.passed",
+            EVENT_REVIEW_PASSED,
             {"review_id": review.id, "copy_id": copy.id},
             self.settings.event_stream,
         )
@@ -58,4 +59,9 @@ def register_reviewer_handlers(registry: SkillRegistry, settings: Settings, redi
     async def on_copy_adapted(payload: dict, session) -> None:
         await service.review_copy(session, payload["copy_id"])
 
-    registry.register("copy.adapted", on_copy_adapted)
+    async def on_review_passed(payload: dict, session) -> None:
+        # 终态事件：审核记录已落库，无需后续处理，仅确认消费避免日志噪音
+        return None
+
+    registry.register(EVENT_COPY_ADAPTED, on_copy_adapted)
+    registry.register(EVENT_REVIEW_PASSED, on_review_passed)

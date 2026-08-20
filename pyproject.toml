@@ -16,10 +16,20 @@ dependencies = [
   "PyYAML>=6.0",
   "apscheduler>=3.10",
   "structlog>=24.1",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "jinja2>=3.1",
+  "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "fakeredis>=2.23", "ruff>=0.4", "coverage[toml]>=7.5"]
+snapshot = [
+  "playwright>=1.40",
+  "Pillow>=10.0",
+  "pytesseract>=0.3.10",
+  "rapidocr-onnxruntime>=1.3",
+]
 
 [build-system]
 requires = ["setuptools>=69"]
@@ -30,7 +40,8 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "-p no:cacheprovider"
+# 临时目录置于项目内（本机 %TEMP% 在 C 盘且被拒绝访问），pytest 仅清理该子目录
+addopts = "-p no:cacheprovider --basetemp=data/.pytest-tmp"
 testpaths = ["tests"]
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
 

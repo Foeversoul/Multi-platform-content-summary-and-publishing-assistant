@@ -1,6 +1,7 @@
 import httpx
 import pytest
 
+from app.collector.opencli_spider import CommandResult
 from app.collector.sources import SourceConfig
 from app.collector.web_spider import FetchError, WebSpider
 
@@ -21,6 +22,16 @@ def _spider(settings):
         return httpx.Response(200, text=HTML, request=request)
 
     return WebSpider(settings, transport=httpx.MockTransport(handler))
+
+
+class FakeRunner:
+    def __init__(self, result=None):
+        self.result = result
+        self.calls: list[list[str]] = []
+
+    async def run(self, argv, timeout):
+        self.calls.append((argv, timeout))
+        return self.result
 
 
 async def test_web_spider_extracts_text(settings):
@@ -97,7 +108,67 @@ async def test_web_spider_network_error_fails_after_retries(settings):
 
 
 async def test_web_spider_empty_text_returns_no_candidates(settings):
+    settings.opencli_render_fallback = False
     empty_html = "<html><head><title>空页</title></head><body><nav>导航</nav></body></html>"
     spider = WebSpider(settings, transport=httpx.MockTransport(lambda r: httpx.Response(200, text=empty_html, request=r)))
     source = SourceConfig(id="w8", name="网页", type="web", url="https://example.com/empty")
     assert await spider.fetch(source) == []
+
+
+async def test_web_spider_render_fallback_when_static_empty(settings):
+    empty_html = "<html><head><title>空页</title></head><body><nav>导航</nav></body></html>"
+    runner = FakeRunner(
+        CommandResult(
+            0,
+            "# 哔哩哔哩排行榜\n- [第一条视频](https://www.bilibili.com/video/BV1) 作者A 100.0万\n- [第二条](https://www.bilibili.com/video/BV2) 作者B 50.0万\n",
+            "",
+        )
+    )
+    spider = WebSpider(
+        settings,
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, text=empty_html, request=r)),
+        runner=runner,
+    )
+    source = SourceConfig(id="w9", name="网页", type="web", url="https://www.bilibili.com/v/popular/rank/all")
+    candidates = await spider.fetch(source)
+    assert len(candidates) == 1
+    assert candidates[0].url == source.url
+    assert candidates[0].title == "哔哩哔哩排行榜"
+    assert "第一条视频" in candidates[0].text
+    assert "https://www.bilibili.com/video/BV1" in candidates[0].text
+    assert runner.calls[0][0][:2] == ["opencli", "web"]
+    assert "--stdout" in runner.calls[0][0]
+
+
+async def test_web_spider_render_true_uses_rendered(settings):
+    runner = FakeRunner(CommandResult(0, "# 标题\n渲染后的正文内容\n", ""))
+    spider = WebSpider(
+        settings,
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, text="<html></html>", request=r)),
+        runner=runner,
+    )
+    source = SourceConfig(id="w10", name="网页", type="web", url="https://example.com/js", render=True)
+    candidates = await spider.fetch(source)
+    assert len(candidates) == 1
+    assert candidates[0].title == "标题"
+    assert "渲染后的正文内容" in candidates[0].text
+
+
+async def test_web_spider_render_disabled_returns_empty(settings):
+    settings.opencli_render_fallback = False
+    empty_html = "<html><head><title>空页</title></head><body><nav>导航</nav></body></html>"
+    spider = WebSpider(
+        settings,
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, text=empty_html, request=r)),
+    )
+    source = SourceConfig(id="w11", name="网页", type="web", url="https://example.com/empty")
+    assert await spider.fetch(source) == []
+
+
+async def test_web_spider_render_with_profile(settings):
+    settings.opencli_profile = "9hrejvdm"
+    runner = FakeRunner(CommandResult(0, "# 标题\n正文\n", ""))
+    spider = WebSpider(settings, transport=httpx.MockTransport(lambda r: httpx.Response(200, text="<html></html>", request=r)), runner=runner)
+    source = SourceConfig(id="w12", name="网页", type="web", url="https://example.com/js", render=True)
+    await spider.fetch(source)
+    assert runner.calls[0][0][0:3] == ["opencli", "--profile", "9hrejvdm"]

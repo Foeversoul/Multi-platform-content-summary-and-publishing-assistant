@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.npm-cache/
+*.local
+.DS_Store
+auto-imports.d.ts
+components.d.ts
+vite.config.js
+vite.config.d.ts
+*.tsbuildinfo

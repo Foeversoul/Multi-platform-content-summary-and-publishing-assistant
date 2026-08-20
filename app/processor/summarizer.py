@@ -1,3 +1,4 @@
+import asyncio
 import json
 from dataclasses import dataclass
 
@@ -52,4 +53,19 @@ async def generate_summary(provider, article_text: str, title: str, min_chars: i
             raise ValueError("summary length out of range")
         return SummarizerResult(summary_text, key_points, short_title or (title or "")[:30], "llm")
     except (LLMError, ValueError, json.JSONDecodeError, KeyError):
+        return _fallback(article_text, title, min_chars, max_chars)
+
+
+async def generate_summary_quick(
+    provider,
+    article_text: str,
+    title: str,
+    min_chars: int = 200,
+    max_chars: int = 400,
+    timeout_seconds: float = 3.0,
+) -> SummarizerResult:
+    """限时摘要生成：LLM 超时（或未配置）自动回退到抽取式摘要，保证调用方响应 ≤ timeout_seconds。"""
+    try:
+        return await asyncio.wait_for(generate_summary(provider, article_text, title, min_chars, max_chars), timeout=timeout_seconds)
+    except TimeoutError:
         return _fallback(article_text, title, min_chars, max_chars)

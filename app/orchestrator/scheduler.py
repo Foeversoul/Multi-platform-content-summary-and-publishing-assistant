@@ -4,6 +4,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.collector.service import upsert_sources
 from app.collector.sources import SourceConfig, load_sources
+from app.events import EVENT_CRAWL_REQUESTED
 from app.storage.queue import emit_event
 
 
@@ -25,7 +26,7 @@ def start_scheduler(settings, redis, session_factory) -> AsyncIOScheduler:
 
     async def trigger_crawl(source_id: str) -> None:
         with session_factory() as session:
-            await emit_event(redis, session, "crawl.requested", {"source_id": source_id}, settings.event_stream)
+            await emit_event(redis, session, EVENT_CRAWL_REQUESTED, {"source_id": source_id}, settings.event_stream)
 
     for spec in build_job_specs(sources):
         scheduler.add_job(
