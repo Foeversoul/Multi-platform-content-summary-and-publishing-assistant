@@ -39,5 +39,23 @@ export const useRecycleStore = defineStore('recycle', () => {
     total.value = Math.max(0, total.value - 1)
   }
 
-  return { page, pageSize, items, total, loading, loadList, restore, purge }
+  /** 批量恢复，返回实际恢复条数 */
+  async function batchRestore(copyIds: number[]) {
+    const { restored } = await recycleApi.batchRestoreCopy(copyIds)
+    const idSet = new Set(copyIds)
+    items.value = items.value.filter((it) => !idSet.has(it.copy_id))
+    total.value = Math.max(0, total.value - restored)
+    return restored
+  }
+
+  /** 批量永久删除（不可恢复），返回实际删除条数 */
+  async function batchPurge(copyIds: number[]) {
+    const { purged } = await recycleApi.batchPurgeCopy(copyIds)
+    const idSet = new Set(copyIds)
+    items.value = items.value.filter((it) => !idSet.has(it.copy_id))
+    total.value = Math.max(0, total.value - purged)
+    return purged
+  }
+
+  return { page, pageSize, items, total, loading, loadList, restore, purge, batchRestore, batchPurge }
 })

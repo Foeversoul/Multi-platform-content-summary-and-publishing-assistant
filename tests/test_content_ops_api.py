@@ -32,9 +32,9 @@ def client(session_factory, redis):
     return TestClient(app)
 
 
-def _seed_pending(session_factory, text: str | None = None):
+def _seed_pending(session_factory, text: str | None = None, url: str = "https://x/w1"):
     session = session_factory()
-    art = Article(url="https://x/w1", title="测试标题", text=text or "这是一段用于测试的正文内容。" * 30, content_hash="c", simhash_value=1, status=ArticleStatus.REVIEWED)
+    art = Article(url=url, title="测试标题", text=text or "这是一段用于测试的正文内容。" * 30, content_hash="c", simhash_value=1, status=ArticleStatus.REVIEWED)
     session.add(art)
     session.flush()
     summary = Summary(article_id=art.id, summary_text="旧摘要内容" * 20, key_points=["旧要点"], short_title="旧短标题", scores={}, status=SummaryStatus.SUMMARIZED)
@@ -169,6 +169,55 @@ def test_purge_from_recycle(session_factory, client):
     assert c.get("/api/recycle").json()["data"]["total"] == 0
 
 
+def test_batch_restore_from_recycle(session_factory, client):
+    ids1 = _seed_pending(session_factory)
+    ids2 = _seed_pending(session_factory, url="https://x/w2")
+    c = client
+    for ids in (ids1, ids2):
+        c.post(f"/api/reviews/{ids['copy_id']}/delete")
+    assert c.get("/api/recycle").json()["data"]["total"] == 2
+    resp = c.post(
+        "/api/recycle/batch-restore",
+        json={"copy_ids": [ids1["copy_id"], ids2["copy_id"]]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["restored"] == 2
+    assert c.get("/api/recycle").json()["data"]["total"] == 0
+    assert c.get("/api/reviews").json()["data"]["total"] == 2  # 恢复后回到待审列表
+    # 再次批量恢复（均非回收站）应跳过，返回 0
+    resp = c.post(
+        "/api/recycle/batch-restore",
+        json={"copy_ids": [ids1["copy_id"], ids2["copy_id"]]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["restored"] == 0
+    # 校验请求体
+    assert c.post("/api/recycle/batch-restore", json={}).status_code == 400
+    assert c.post("/api/recycle/batch-restore", json={"copy_ids": ["x"]}).status_code == 400
+
+
+def test_batch_purge_from_recycle(session_factory, client):
+    ids1 = _seed_pending(session_factory)
+    ids2 = _seed_pending(session_factory, url="https://x/w2")
+    c = client
+    for ids in (ids1, ids2):
+        c.post(f"/api/reviews/{ids['copy_id']}/delete")
+    assert c.get("/api/recycle").json()["data"]["total"] == 2
+    resp = c.post(
+        "/api/recycle/batch-purge",
+        json={"copy_ids": [ids1["copy_id"], ids2["copy_id"]]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["purged"] == 2
+    session = session_factory()
+    assert session.get(PlatformCopy, ids1["copy_id"]) is None
+    assert session.get(PlatformCopy, ids2["copy_id"]) is None
+    session.close()
+    assert c.get("/api/recycle").json()["data"]["total"] == 0
+    assert c.post("/api/recycle/batch-purge", json={}).status_code == 400
+    assert c.post("/api/recycle/batch-purge", json={"copy_ids": ["x"]}).status_code == 400
+
+
 # ---------- 手动内容上传 ----------
 
 def test_manual_content_enters_review_list(session_factory, client):
@@ -178,7 +227,7 @@ def test_manual_content_enters_review_list(session_factory, client):
     data = resp.json()["data"]
     assert len(data["copy_ids"]) == 3  # weibo / moments / xhs 三个平台
     reviews = c.get("/api/reviews").json()["data"]
-    assert reviews["total"] == 3  # 全部进入待审列表
+    assert reviews["total"] == 1  # 多平台文案按文章聚合为一组待审记录
     session = session_factory()
     article = session.get(Article, data["article_id"])
     assert article.title == "手动文章"

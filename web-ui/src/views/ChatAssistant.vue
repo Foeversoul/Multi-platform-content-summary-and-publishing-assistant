@@ -9,12 +9,13 @@ interface Msg {
   role: 'user' | 'assistant'
   text: string
   source?: string
+  kind?: string
 }
 
 const messages = ref<Msg[]>([
   {
     role: 'assistant',
-    text: '你好！我是本项目的 AI 助手，可以帮你了解功能用法。试试下面的快捷提问，或直接输入你的问题。',
+    text: '你好！我是本项目的 AI 助手，既可以解答功能用法，也能直接帮你执行项目操作。试试下面的快捷指令，或直接输入你的需求。',
   },
 ])
 const input = ref('')
@@ -25,9 +26,10 @@ const suggestions = [
   '这个项目能做什么？',
   '如何导入内容？',
   '支持哪些平台？',
-  '爬取不到内容怎么办？',
-  '如何一键审核？',
-  '如何部署项目？',
+  '帮我爬取一个链接',
+  '列一下待审列表',
+  '发布所有待审',
+  '当前待审数量',
 ]
 
 async function scrollToBottom() {
@@ -46,7 +48,7 @@ async function send(text: string) {
   await scrollToBottom()
   try {
     const result = await sendChatMessage(msg)
-    messages.value.push({ role: 'assistant', text: result.reply, source: result.source })
+    messages.value.push({ role: 'assistant', text: result.reply, source: result.source, kind: result.kind })
   } catch (err) {
     const tip = err instanceof ApiClientError ? err.message : '回复失败，请稍后重试'
     messages.value.push({ role: 'assistant', text: tip })
@@ -91,6 +93,7 @@ function onSuggestion(s: string) {
         </div>
         <div class="msg-bubble">
           <p class="msg-text">{{ msg.text }}</p>
+          <span v-if="msg.source === 'action'" class="msg-tag msg-tag-action">已执行</span>
           <span v-if="msg.source === 'fallback'" class="msg-tag">离线知识库</span>
           <span v-else-if="msg.source === 'llm'" class="msg-tag msg-tag-llm">AI</span>
         </div>
@@ -188,6 +191,9 @@ function onSuggestion(s: string) {
 .msg-tag-llm {
   color: var(--brand-500);
 }
+.msg-tag-action {
+  color: var(--el-color-success);
+}
 .is-user .msg-text {
   color: #fff;
 }
@@ -220,4 +226,3 @@ function onSuggestion(s: string) {
   border-top: 1px solid var(--border);
 }
 </style>
-

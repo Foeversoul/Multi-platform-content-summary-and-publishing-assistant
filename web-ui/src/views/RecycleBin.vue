@@ -11,6 +11,8 @@ import { formatDateTime, platformLabel } from '@/utils/format'
 const { confirm } = useConfirm()
 const store = useRecycleStore()
 const actingId = ref<number | null>(null)
+const selection = ref<Record<string, unknown>[]>([])
+const batchActing = ref(false)
 
 onMounted(() => {
   void store.loadList()
@@ -49,6 +51,51 @@ async function onPurge(row: Record<string, unknown>) {
     actingId.value = null
   }
 }
+
+/** 批量恢复选中文案到待审列表 */
+async function onBatchRestore() {
+  const copyIds = selection.value.map((row) => Number(row.copy_id))
+  if (!copyIds.length) {
+    ElMessage.warning('请先勾选要恢复的文案')
+    return
+  }
+  batchActing.value = true
+  try {
+    const restored = await store.batchRestore(copyIds)
+    selection.value = []
+    ElMessage.success(`已恢复 ${restored} 条文案到待审列表`)
+  } catch {
+    // 统一错误提示
+  } finally {
+    batchActing.value = false
+  }
+}
+
+/** 批量永久删除（二次确认，不可恢复） */
+async function onBatchPurge() {
+  const copyIds = selection.value.map((row) => Number(row.copy_id))
+  if (!copyIds.length) {
+    ElMessage.warning('请先勾选要删除的文案')
+    return
+  }
+  const ok = await confirm({
+    title: '批量永久删除',
+    message: `将永久删除选中的 ${copyIds.length} 条文案及全部审核记录，此操作不可恢复！确认继续？`,
+    confirmText: '永久删除',
+    type: 'danger',
+  })
+  if (!ok) return
+  batchActing.value = true
+  try {
+    const purged = await store.batchPurge(copyIds)
+    selection.value = []
+    ElMessage.success(`已永久删除 ${purged} 条文案`)
+  } catch {
+    // 统一错误提示
+  } finally {
+    batchActing.value = false
+  }
+}
 </script>
 
 <template>
@@ -58,7 +105,14 @@ async function onPurge(row: Record<string, unknown>) {
       <span class="page-subtitle">共 {{ store.total }} 条已删除内容，可恢复或永久删除</span>
     </div>
 
+    <div v-if="selection.length" class="batch-bar">
+      <span>已选 {{ selection.length }} 条</span>
+      <el-button type="primary" plain :loading="batchActing" @click="onBatchRestore">批量恢复</el-button>
+      <el-button type="danger" plain :loading="batchActing" @click="onBatchPurge">批量永久删除</el-button>
+    </div>
+
     <BaseTable
+      selectable
       :columns="[
         { prop: 'article_title', label: '文章标题' },
         { prop: 'platform', label: '平台', width: 120 },
@@ -70,6 +124,7 @@ async function onPurge(row: Record<string, unknown>) {
       empty-text="回收站为空"
       :action-width="160"
       @action="store.loadList"
+      @selection="selection = $event"
     >
       <template #article_title="{ row }">
         <span :title="String(row.text || '')">{{ row.article_title }}</span>
@@ -118,6 +173,18 @@ async function onPurge(row: Record<string, unknown>) {
 .page-subtitle {
   color: var(--text-3);
   font-size: 13px;
+}
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 16px;
+  background: linear-gradient(90deg, var(--el-color-primary-light-9) 0%, #ffffff 100%);
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--brand-600);
 }
 .pagination {
   margin-top: 16px;

@@ -293,3 +293,134 @@ def test_scrape_item_retry(client):
     resp = c.post("/api/scrape/jobs/1/items/1/retry")
     assert resp.status_code == 200
     assert resp.json()["data"]["new_job_id"] in fake.created
+
+
+# ---------- AI 对话助手：按需求执行模块功能 ----------
+
+def test_chat_publish_single_copy(session_factory, client):
+    _seed_pending(session_factory)
+    c, _ = client
+    data = c.post("/api/chat", json={"message": "发布文案 #1"}).json()["data"]
+    assert data["source"] == "action"
+    assert data["kind"] == "publish"
+    assert "已发布" in data["reply"]
+    session = session_factory()
+    review = session.scalar(select(Review).where(Review.copy_id == 1))
+    assert review.verdict == Verdict.PASS
+    session.close()
+
+
+def test_chat_publish_all(session_factory, client):
+    _seed_pending(session_factory)
+    c, _ = client
+    data = c.post("/api/chat", json={"message": "一键通过所有待审"}).json()["data"]
+    assert data["kind"] == "publish_all"
+    assert data["data"]["published"] == 1
+    session = session_factory()
+    assert session.scalar(select(Review).where(Review.copy_id == 1)).verdict == Verdict.PASS
+    session.close()
+
+
+def test_chat_import_content(session_factory, redis):
+    app = create_app(session_factory, redis, settings=Settings(llm_api_key=""), scrape_service=FakeScrapeService())
+    c = TestClient(app)
+    content = "这是一段通过对话助手导入的长文本正文内容。"
+    data = c.post("/api/chat", json={"message": f"导入内容：{content * 4}"}).json()["data"]
+    assert data["kind"] == "import"
+    assert len(data["data"]["copy_ids"]) == 3
+    # 一篇内容的多平台文案聚合为一组待审记录
+    assert c.get("/api/reviews").json()["data"]["total"] == 1
+
+
+def test_chat_pending_list(session_factory, client):
+    _seed_pending(session_factory)
+    c, _ = client
+    data = c.post("/api/chat", json={"message": "列一下待审列表"}).json()["data"]
+    assert data["kind"] == "pending_list"
+    assert data["data"]["items"][0][0] == 1
+    assert "标题" in data["reply"]
+
+
+def test_chat_status_count(session_factory, client):
+    _seed_pending(session_factory)
+    c, _ = client
+    data = c.post("/api/chat", json={"message": "当前待审数量是多少"}).json()["data"]
+    assert data["kind"] == "status"
+    assert data["data"]["pending"] == 1
+
+
+def test_chat_regenerate_summary(session_factory, client):
+    _seed_pending(session_factory)
+    c, _ = client
+    data = c.post("/api/chat", json={"message": "重新生成摘要 #1"}).json()["data"]
+    assert data["kind"] == "regenerate_summary"
+    assert "摘要" in data["reply"]
+
+
+def test_chat_falls_back_to_qa_for_question(client):
+    c, _ = client
+    data = c.post("/api/chat", json={"message": "这个项目能做什么？"}).json()["data"]
+    assert data["kind"] == "qa"
+    assert data["source"] == "fallback"
+    assert "多平台内容总结" in data["reply"]
+
+
+def test_chat_scrape_creates_job(client):
+    c, fake = client
+    data = c.post("/api/chat", json={"message": "帮我爬取一个 https://example.com/article"}).json()["data"]
+    assert data["kind"] == "scrape"
+    assert data["data"]["job_id"] in fake.created
+    assert data["data"]["urls"] == ["https://example.com/article"]
+    assert "爬取" in data["reply"]
+
+
+def test_chat_scrape_without_url_prompts_for_link(client):
+    c, fake = client
+    data = c.post("/api/chat", json={"message": "帮我爬取一个链接"}).json()["data"]
+    assert data["kind"] == "scrape"
+    assert "链接" in data["reply"]
+    assert fake.created == []
+
+
+def test_chat_scrape_text_finds_and_crawls_links(client):
+    c, fake = client
+    data = c.post(
+        "/api/chat",
+        json={"message": "帮我爬取 这篇报道不错 https://example.com/a，还有这篇 https://example.com/b"},
+    ).json()["data"]
+    assert data["kind"] == "scrape"
+    assert data["data"]["urls"] == ["https://example.com/a", "https://example.com/b"]
+    assert data["data"]["job_id"] in fake.created
+    assert "2 个链接" in data["reply"]
+
+
+def test_chat_crawl_question_falls_back(client):
+    c, fake = client
+    data = c.post("/api/chat", json={"message": "如何爬取内容？"}).json()["data"]
+    assert data["kind"] == "qa"
+    assert fake.created == []
+
+
+def test_chat_publish_all_question_does_not_trigger_action(session_factory, client):
+    _seed_pending(session_factory)
+    c, _ = client
+    data = c.post("/api/chat", json={"message": "如何一键通过所有待审？"}).json()["data"]
+    assert data["kind"] == "qa"
+    session = session_factory()
+    review = session.scalar(select(Review).where(Review.copy_id == 1))
+    assert review.verdict == Verdict.PENDING
+    session.close()
+
+
+def test_chat_regenerate_summary_question_does_not_trigger_action(session_factory, client):
+    _seed_pending(session_factory)
+    c, _ = client
+    data = c.post("/api/chat", json={"message": "怎么重新生成摘要 #1？"}).json()["data"]
+    assert data["kind"] == "qa"
+
+
+def test_chat_regenerate_copy_question_does_not_trigger_action(session_factory, client):
+    _seed_pending(session_factory)
+    c, _ = client
+    data = c.post("/api/chat", json={"message": "如何重新扩写 #1？"}).json()["data"]
+    assert data["kind"] == "qa"

@@ -20,3 +20,13 @@ export async function restoreCopy(copyId: number) {
 export async function purgeCopy(copyId: number) {
   return req<{ copy_id: number; purged: boolean }>(request.delete(`/recycle/${copyId}`))
 }
+
+/** 批量恢复文案 */
+export async function batchRestoreCopy(copyIds: number[]) {
+  return req<{ restored: number }>(request.post('/recycle/batch-restore', { copy_ids: copyIds }))
+}
+
+/** 批量永久删除（不可恢复） */
+export async function batchPurgeCopy(copyIds: number[]) {
+  return req<{ purged: number }>(request.post('/recycle/batch-purge', { copy_ids: copyIds }))
+}

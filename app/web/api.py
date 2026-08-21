@@ -320,6 +320,26 @@ def build_api_router(session_factory, redis, settings: Settings, scrape_service:
                 raise ApiError(404, 404, "回收站中不存在该文案") from exc
         return ok({"copy_id": copy_id, "purged": True})
 
+    @router.post("/recycle/batch-restore")
+    def batch_restore_recycle(body: dict = Body(...)):  # noqa: B008
+        """批量恢复回收站中的文案。"""
+        copy_ids = body.get("copy_ids")
+        if not copy_ids or not isinstance(copy_ids, list) or not all(isinstance(i, int) for i in copy_ids):
+            raise ApiError(400, 400, "请求体需包含非空 copy_ids 整数列表")
+        with session_factory() as session:
+            count = content_ops.batch_restore(session, copy_ids)
+        return ok({"restored": count})
+
+    @router.post("/recycle/batch-purge")
+    def batch_purge_recycle(body: dict = Body(...)):  # noqa: B008
+        """批量永久删除回收站中的文案（连带审核/发布记录，不可恢复）。"""
+        copy_ids = body.get("copy_ids")
+        if not copy_ids or not isinstance(copy_ids, list) or not all(isinstance(i, int) for i in copy_ids):
+            raise ApiError(400, 400, "请求体需包含非空 copy_ids 整数列表")
+        with session_factory() as session:
+            count = content_ops.batch_purge(session, copy_ids)
+        return ok({"purged": count})
+
     # ---------- 手动内容上传 ----------
 
     @router.post("/content/manual")
@@ -360,12 +380,12 @@ def build_api_router(session_factory, redis, settings: Settings, scrape_service:
 
     @router.post("/chat")
     async def chat(body: dict = Body(...)):  # noqa: B008
-        """AI 对话助手：基于项目知识的问答，LLM 不可用时走关键词回退。"""
+        """AI 对话助手：既能问答，也能按用户需求执行模块动作。"""
         message = (body.get("message") or "").strip()
         if not message:
             raise ApiError(400, 400, "消息不能为空")
-        reply = await chat_assistant(provider, message)
-        return ok({"reply": reply["text"], "source": reply["source"]})
+        reply = await chat_assistant(session_factory, provider, message, content_ops, scrape_service=service)
+        return ok({"reply": reply["text"], "source": reply["source"], "kind": reply.get("kind"), "data": reply.get("data")})
 
     # ---------- IF-05 运行状态 ----------
 

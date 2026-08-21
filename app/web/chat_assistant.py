@@ -1,11 +1,20 @@
-"""AI 对话助手：基于项目知识的问答模块。
+"""AI 对话助手：基于项目知识的问答 + 按需求执行模块功能。
 
 LLM 可用时走对话生成；不可用时按关键词匹配回退到内置知识库。
+当用户表达明确的执行意图（导入内容 / 发布 / 重新生成 / 状态查询）时，
+直接调用对应模块动作并把执行结果回写到对话中。
 """
 
 import asyncio
+import re
+
+from sqlalchemy import func, select
 
 from app.llm.provider import ChatMessage, LLMError
+from app.scrape.errors import QuotaExceededError, ScrapeError
+from app.storage.models import Article, PlatformCopy, Review, Summary, Verdict
+from app.web.actions import ReviewNotFoundError, publish_copy, publish_pending_all
+from app.web.content_ops import CopyNotFoundError, PublishedCopyError, extract_title
 
 _KB: list[tuple[list[str], str]] = [
     (
@@ -120,6 +129,8 @@ _SYSTEM_PROMPT = (
    + "主要功能页面：待审列表、内容导入、运行总览、回收站、死信管理。\n"
    + "快照兜底：常规爬虫和 OpenCLI 渲染均失败时，自动用 Playwright 加载页面 + OCR 识别文字提取正文。\n"
    + "架构：基于 Redis Streams 事件总线的多智能体流水线，worker 进程消费事件自动执行。\n"
+    + "你还可以直接执行模块动作：爬取指定链接、导入内容、发布所有待审、发布单条文案（指定编号）、"
+    + "重新生成摘要或扩写、查询待审列表与待审数量。\n"
     + "请用简洁清晰的中文回答用户问题，适当使用列表和换行提升可读性。不要编造不存在的功能。"
 )
 
@@ -142,6 +153,157 @@ _PROJECT_OVERVIEW = (
     + "• 爬取不到内容怎么办？\n• 如何一键审核？\n• 如何部署项目？"
 )
 
+# ------------- 动作意图关键词（严格匹配，避免误触发问答） -------------
+
+_IMPORT_VERBS = ("导入", "收录", "添加内容", "上传内容")
+_QUESTION_WORDS = ("如何", "怎么", "怎样", "能否", "可以吗", "可不可以用", "吗？", "？", "?", "介绍")
+_PUBLISH_ALL_WORDS = ("发布所有", "发布全部", "全部发布", "一键通过", "全部通过", "批量通过", "全选发布")
+_SUMMARY_REGENERATE_WORDS = ("重新生成摘要", "重新总结", "重新摘要")
+_COPY_REGENERATE_WORDS = ("重新扩写", "重新生成文案", "改写文案", "重新生成该文案")
+_LIST_WORDS = ("待审列表", "列出待审", "看看待审", "有哪些待审", "待审都有", "看下待审", "待审的都有")
+_STATUS_WORDS = ("运行状态", "状态如何", "待审数量", "有多少待审", "待审的有", "待审核数量", "当前状态")
+_CRAWL_VERBS = ("爬取", "抓取", "爬一下", "爬一爬", "采集这个")
+_URL_RE = re.compile(r"https?://[^\s，。、；：\"'<>]+", re.IGNORECASE)
+_MIN_TEXT_LEN = 20
+
+
+def _is_question(message: str) -> bool:
+    """判断消息是否为提问，避免把"如何导入？"误判成执行动作。"""
+    return any(word in message for word in _QUESTION_WORDS)
+
+
+def _copy_id_from(message: str) -> int | None:
+    """从消息中提取文案编号（支持 #3、第3条、直接数字）。"""
+    match = re.search(r"(?:#|＃|第)?\s*(\d+)", message)
+    return int(match.group(1)) if match else None
+
+
+def _parse_import(message: str) -> str | None:
+    """若消息携带导入指令和足够正文，则返回待导入内容，否则返回 None。"""
+    if _is_question(message):
+        return None
+    idx = -1
+    verb = None
+    for candidate in _IMPORT_VERBS:
+        pos = message.find(candidate)
+        if pos != -1 and (idx == -1 or pos < idx):
+            idx, verb = pos, candidate
+    if idx == -1:
+        return None
+    content = message[idx + len(verb):].lstrip("：:，, \n\t").replace("...", "").replace("……", "")
+    return content if len(content) >= _MIN_TEXT_LEN else None
+
+
+def _query_pending(session_factory, limit: int = 10) -> list[tuple[int, str, str]]:
+    """查询最近的待审文案（copy_id, 文章标题, 平台）。"""
+    with session_factory() as session:
+        rows = session.execute(
+            select(PlatformCopy.id, Article.title, PlatformCopy.platform)
+            .join(Summary, Summary.id == PlatformCopy.summary_id)
+            .join(Article, Article.id == Summary.article_id)
+            .join(Review, Review.copy_id == PlatformCopy.id)
+            .where(Review.verdict == Verdict.PENDING, PlatformCopy.deleted_at.is_(None))
+            .order_by(Review.created_at.desc())
+            .limit(limit)
+        ).all()
+        return [(row[0], row[1] or "", row[2]) for row in rows]
+
+
+async def _try_action(session_factory, content_ops, message: str, scrape_service=None) -> dict | None:
+    """尝试识别并执行动作意图；未命中任何动作时返回 None（进入问答）。"""
+    content = _parse_import(message)
+    if content:
+        try:
+            with session_factory() as session:
+                data = await content_ops.create_manual_content(session, title=extract_title(content), content=content)
+        except ValueError as exc:
+            return {"text": f"内容导入失败：{exc}", "source": "action", "kind": "import"}
+        return {
+            "text": f"内容已导入并完成摘要与全平台扩写，进入待审。文章 #{data['article_id']}，共 {len(data['copy_ids'])} 个平台文案。",
+            "source": "action",
+            "kind": "import",
+            "data": data,
+        }
+
+    if scrape_service is not None and not _is_question(message) and any(word in message for word in _CRAWL_VERBS):
+        urls = list(dict.fromkeys(u.rstrip(".,;!?）)") for u in _URL_RE.findall(message)))
+        if not urls:
+            return {
+                "text": "未在这段文字中找到链接。请直接粘贴要爬取的链接，或附上带链接的文字（例如：帮我爬取 这篇不错 https://example.com/a）。",
+                "source": "action",
+                "kind": "scrape",
+                "data": None,
+            }
+        try:
+            with session_factory() as session:
+                job, dedup_count = scrape_service.create_job(session, urls)
+        except QuotaExceededError:
+            return {"text": "在途爬取任务太多，请稍后再试。", "source": "action", "kind": "scrape", "data": None}
+        except ScrapeError as exc:
+            return {"text": f"爬取任务创建失败：{exc.message}", "source": "action", "kind": "scrape", "data": None}
+        job_id = job.id
+        asyncio.create_task(scrape_service.run_job(session_factory, job_id))
+        suffix = f"（跳过 {dedup_count} 条重复）" if dedup_count else ""
+        preview = "、".join(urls[:3]) + (" 等" if len(urls) > 3 else "")
+        return {
+            "text": f"已识别 {len(urls)} 个链接并创建爬取任务 #{job_id}，后台正在抓取：{preview}{suffix}。",
+            "source": "action",
+            "kind": "scrape",
+            "data": {"job_id": job_id, "urls": urls, "dedup_count": dedup_count},
+        }
+
+    if any(word in message for word in _PUBLISH_ALL_WORDS) and not _is_question(message):
+        with session_factory() as session:
+            count = publish_pending_all(session)
+        return {"text": f"已一键通过并发布 {count} 条待审文案。", "source": "action", "kind": "publish_all", "data": {"published": count}}
+
+    if "发布" in message and not _is_question(message):
+        copy_id = _copy_id_from(message)
+        if copy_id:
+            try:
+                with session_factory() as session:
+                    publish = publish_copy(session, copy_id)
+            except ReviewNotFoundError:
+                return {"text": f"未找到待审文案 #{copy_id}，可能已被发布或不存在。", "source": "action", "kind": "publish"}
+            published_at = publish.published_at.replace(microsecond=0).isoformat() if publish.published_at else ""
+            return {"text": f"文案 #{copy_id} 已发布，发布时间 {published_at}。", "source": "action", "kind": "publish", "data": {"copy_id": copy_id}}
+
+    if any(word in message for word in _SUMMARY_REGENERATE_WORDS) and not _is_question(message):
+        copy_id = _copy_id_from(message)
+        if not copy_id:
+            return {"text": "请告诉我需要重新生成摘要的文案编号，例如：重新生成摘要 #3。", "source": "action", "kind": "regenerate_summary"}
+        try:
+            with session_factory() as session:
+                data = await content_ops.regenerate_summary(session, copy_id)
+        except CopyNotFoundError:
+            return {"text": f"未找到文案 #{copy_id}。", "source": "action", "kind": "regenerate_summary"}
+        return {"text": f"文案 #{copy_id} 的摘要已重新生成，并已级联重写全部平台文案。", "source": "action", "kind": "regenerate_summary", "data": data}
+
+    if any(word in message for word in _COPY_REGENERATE_WORDS) and not _is_question(message):
+        copy_id = _copy_id_from(message)
+        if not copy_id:
+            return {"text": "请告诉我需要重新扩写的文案编号，例如：重新扩写 #5。", "source": "action", "kind": "regenerate_copy"}
+        try:
+            with session_factory() as session:
+                data = await content_ops.regenerate_copy(session, copy_id)
+        except (CopyNotFoundError, PublishedCopyError):
+            return {"text": f"无法为文案 #{copy_id} 重新扩写，可能已被发布或不存在。", "source": "action", "kind": "regenerate_copy"}
+        return {"text": f"文案 #{copy_id}（{data['platform']}）已重新扩写，并重置为待审。", "source": "action", "kind": "regenerate_copy", "data": data}
+
+    if any(word in message for word in _LIST_WORDS):
+        rows = _query_pending(session_factory)
+        if not rows:
+            return {"text": "目前没有待审文案。", "source": "action", "kind": "pending_list", "data": {"items": []}}
+        lines = [f"- #{copy_id}  {title}（{platform}）" for copy_id, title, platform in rows]
+        return {"text": "当前待审文案：\n" + "\n".join(lines), "source": "action", "kind": "pending_list", "data": {"items": rows}}
+
+    if any(word in message for word in _STATUS_WORDS):
+        with session_factory() as session:
+            pending = session.scalar(select(func.count()).select_from(Review).where(Review.verdict == Verdict.PENDING)) or 0
+        return {"text": f"当前共有 {pending} 条文案待审核。", "source": "action", "kind": "status", "data": {"pending": pending}}
+
+    return None
+
 
 def _keyword_fallback(message: str) -> str:
     """关键词匹配回退：按命中率返回最相关的知识条目。"""
@@ -154,10 +316,19 @@ def _keyword_fallback(message: str) -> str:
     return best[1]
 
 
-async def chat_assistant(provider, message: str) -> dict:
-    """AI 对话助手：LLM 可用时走对话，不可用走关键词回退。"""
+async def chat_assistant(session_factory, provider, message: str, content_ops=None, scrape_service=None) -> dict:
+    """AI 对话助手：先识别执行动作，再退回 LLM 问答 / 关键词知识库。"""
+    message = (message or "").strip()
+    if not message:
+        return {"text": "请输入您的问题或要执行的指令。", "source": "fallback", "kind": "empty"}
+
+    if content_ops is not None:
+        action_result = await _try_action(session_factory, content_ops, message, scrape_service)
+        if action_result is not None:
+            return action_result
+
     if provider is None:
-        return {"text": _keyword_fallback(message), "source": "fallback"}
+        return {"text": _keyword_fallback(message), "source": "fallback", "kind": "qa"}
     try:
         raw = await asyncio.wait_for(
             provider.chat([
@@ -169,7 +340,7 @@ async def chat_assistant(provider, message: str) -> dict:
         text = raw.strip()
         # LLM 返回过短或空内容时保底走关键词回退
         if len(text) < 5:
-            return {"text": _keyword_fallback(message), "source": "fallback"}
-        return {"text": text, "source": "llm"}
-    except (LLMError, TimeoutError, OSError, Exception):  # noqa: BLE001 — 终极保底
-        return {"text": _keyword_fallback(message), "source": "fallback"}
+            return {"text": _keyword_fallback(message), "source": "fallback", "kind": "qa"}
+        return {"text": text, "source": "llm", "kind": "qa"}
+    except (LLMError, OSError, Exception):  # noqa: BLE001 — 终极保底
+        return {"text": _keyword_fallback(message), "source": "fallback", "kind": "qa"}

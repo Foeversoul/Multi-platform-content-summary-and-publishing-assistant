@@ -249,6 +249,16 @@ class ContentOpsService:
         copy.deleted_at = None
         session.commit()
 
+    def batch_restore(self, session: Session, copy_ids: list[int]) -> int:
+        """批量恢复回收站中的文案，返回实际恢复条数（跳过不存在/未删除的）。"""
+        copies = session.scalars(
+            select(PlatformCopy).where(PlatformCopy.id.in_(copy_ids), PlatformCopy.deleted_at.is_not(None))
+        ).all()
+        for copy in copies:
+            copy.deleted_at = None
+        session.commit()
+        return len(copies)
+
     def purge_copy(self, session: Session, copy_id: int) -> None:
         """永久删除：连带清理审核与发布记录，不可恢复。"""
         copy = session.get(PlatformCopy, copy_id)
@@ -258,6 +268,18 @@ class ContentOpsService:
         session.execute(delete(Publish).where(Publish.copy_id == copy_id))
         session.delete(copy)
         session.commit()
+
+    def batch_purge(self, session: Session, copy_ids: list[int]) -> int:
+        """批量永久删除：连带清理审核与发布记录，返回实际删除条数（跳过不存在/未删除的）。"""
+        copies = session.scalars(
+            select(PlatformCopy).where(PlatformCopy.id.in_(copy_ids), PlatformCopy.deleted_at.is_not(None))
+        ).all()
+        for copy in copies:
+            session.execute(delete(Review).where(Review.copy_id == copy.id))
+            session.execute(delete(Publish).where(Publish.copy_id == copy.id))
+            session.delete(copy)
+        session.commit()
+        return len(copies)
 
     # ---------- 手动内容上传 ----------
 
