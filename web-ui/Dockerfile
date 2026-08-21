@@ -1,5 +1,5 @@
 # 前端生产镜像（O1）：构建 dist 后用 nginx 托管，并反代 /api 到后端
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci

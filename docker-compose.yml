@@ -40,17 +40,15 @@ services:
 
   worker:
     build: .
-    command: sh -c "alembic upgrade head && python -m app.worker"
+    command: python -m app.worker
     environment:
       ASSISTANT_DATABASE_URL: postgresql+psycopg://assistant:assistant@postgres:5432/assistant
       ASSISTANT_REDIS_URL: redis://redis:6379/0
       ASSISTANT_SOURCES_FILE: /app/sources.yaml
       ASSISTANT_API_TOKEN: ${ASSISTANT_API_TOKEN:-}
     depends_on:
-      postgres:
+      app:
         condition: service_healthy
-      redis:
-        condition: service_started
     volumes: ["./sources.yaml:/app/sources.yaml:ro", "./data:/app/data"]
 
   frontend:
