@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -37,7 +38,9 @@ from app.storage.models import (
     ScrapeJobItem,
     ScrapeJobStatus,
 )
-from app.storage.queue import emit_event
+from app.storage.queue import EventDeliveryError, emit_event
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -143,7 +146,12 @@ class ScrapeService:
         for item in items:
             with session_factory() as session:
                 row = session.get(ScrapeJobItem, item.id)
-                result = await self.validator.validate(row.url)
+                # opencli 支持的视频平台经浏览器 Bridge 抓取，跳过直连 HTTP 探测，
+                # 避免无直连网络时误判不可达（SEC-09 SSRF 仍校验）
+                if resolve_video_platform(row.url) is not None:
+                    result = await self.validator.validate_without_probe(row.url)
+                else:
+                    result = await self.validator.validate(row.url)
                 if result.ok:
                     row.status = ScrapeItemStatus.VALIDATED
                     validated_ids.append((row.id, row.url))
@@ -264,8 +272,13 @@ class ScrapeService:
             raw_path = raw_dir / f"{article.id}.txt"
             raw_path.write_text(cand.text, encoding="utf-8")
             article.raw_path = str(raw_path)
-            await emit_event(self.redis, session, EVENT_ARTICLE_CRAWLED, {"article_id": article.id}, self.settings.event_stream)
-            session.commit()
+            session.commit()  # 先持久化文章，事件投递失败不回滚已爬取内容
+            try:
+                await emit_event(self.redis, session, EVENT_ARTICLE_CRAWLED, {"article_id": article.id}, self.settings.event_stream)
+                session.commit()
+            except EventDeliveryError as exc:
+                # Redis 不可用时事件保留 QUEUED，交由补偿机制重投，不影响爬取结果
+                logger.warning("event delivery failed for article %s: %s", article.id, exc)
             return article.id, None
         except FetchError as exc:
             session.rollback()

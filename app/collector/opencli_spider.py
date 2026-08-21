@@ -153,7 +153,8 @@ class OpenCliSpider:
 
         meta = await self._run_simple(["bilibili", "video", url], opencli_bin, profile)
         title = ""
-        lines: list[str] = []
+        description = ""
+        publish_time: datetime | None = None
         for row in _extract_rows(meta):
             field = _normalize_key(str(row.get("field") or ""))
             value = row.get("value")
@@ -162,7 +163,10 @@ class OpenCliSpider:
             text_value = str(value).strip()
             if field == "title":
                 title = text_value
-            lines.append(f"{field}: {text_value}")
+            elif field == "description":
+                description = text_value
+            elif field in ("publish_time", "published_at", "pub_date", "date"):
+                publish_time = _parse_time(text_value)
 
         outline: list[str] = []
         try:
@@ -180,12 +184,16 @@ class OpenCliSpider:
             # 摘要接口可能未生成或需登录，失败不阻断元数据采集
             outline = []
 
-        body = "\n".join(lines)
+        # 正文仅保留 AI 总结纲要，视频元数据（bvid/aid/author/view 等）不进入后续步骤；
+        # AI 总结缺失时用 description 兜底（跳过无意义占位符如 "-"）
+        body = ""
         if outline:
-            body = f"{body}\n\n官方AI总结：\n" + "\n".join(outline)
+            body = "官方AI总结：\n" + "\n".join(outline)
+        elif description and description not in ("-", "——", "无"):
+            body = description
         if not body and not title:
             return []
-        return [Candidate(url=url, title=(title or url)[:500], text=body)]
+        return [Candidate(url=url, title=(title or url)[:500], text=body, publish_time=publish_time)]
 
     async def _run_simple(self, positional: list[str], opencli_bin: str, profile: str) -> Any:
         """执行带 position 参数的 opencli 命令并以 JSON 解析输出。"""

@@ -62,7 +62,15 @@ class CollectorService:
     def __init__(self, settings: Settings, redis, spiders: dict | None = None, dedup: DedupService | None = None) -> None:
         self.settings = settings
         self.redis = redis
-        self.spiders = spiders or {key: cls(settings) for key, cls in SPIDERS.items()}
+        if spiders is None:
+            # RSS 摘要被截断时，复用 WebSpider 回源抓取完整正文
+            web_spider = WebSpider(settings)
+            spiders = {
+                "web": web_spider,
+                "rss": RssSpider(settings, web_spider=web_spider),
+                "opencli": OpenCliSpider(settings),
+            }
+        self.spiders = spiders
         self.dedup = dedup or DedupService(settings.dedup_window_days, settings.simhash_threshold)
 
     async def crawl_source(self, session: Session, source: SourceConfig) -> list[int]:

@@ -24,6 +24,10 @@ class ReviewerService:
         copy = session.get(PlatformCopy, copy_id)
         if copy is None:
             raise ValueError(f"unknown copy_id: {copy_id}")
+        # 幂等：已审核的文案直接返回已有 review，跳过重复处理
+        existing = session.scalar(select(Review).where(Review.copy_id == copy_id))
+        if existing is not None:
+            return existing
         platform = self.platforms.get(copy.platform)
         if platform is None:
             raise ValueError(f"unknown platform: {copy.platform}")

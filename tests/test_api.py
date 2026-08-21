@@ -21,6 +21,7 @@ from app.storage.models import (
     SummaryStatus,
     Verdict,
 )
+from app.web.chat_assistant import chat_assistant
 from app.web.main import create_app
 
 
@@ -399,6 +400,70 @@ def test_chat_crawl_question_falls_back(client):
     data = c.post("/api/chat", json={"message": "如何爬取内容？"}).json()["data"]
     assert data["kind"] == "qa"
     assert fake.created == []
+
+
+# ---------- AI 对话助手：24 小时记忆 ----------
+
+def test_chat_history_endpoint_returns_saved_turns(session_factory, client):
+    c, _ = client
+    data = c.post("/api/chat", json={"message": "这个项目能做什么？"}).json()["data"]
+    assert data["kind"] == "qa"
+    hist = c.get("/api/chat/history").json()["data"]
+    assert hist["total"] >= 2
+    assert [item["role"] for item in hist["items"]] == ["user", "assistant"]
+    assert "项目" in hist["items"][1]["text"]
+
+
+def test_chat_clear_history_endpoint(session_factory, client):
+    c, _ = client
+    c.post("/api/chat", json={"message": "这个项目能做什么？"})
+    resp = c.post("/api/chat/history/clear")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["cleared"] >= 2
+    assert c.get("/api/chat/history").json()["data"]["total"] == 0
+
+
+def test_chat_query_history_action(session_factory, client):
+    c, _ = client
+    c.post("/api/chat", json={"message": "我记得你之前介绍过项目"})
+    data = c.post("/api/chat", json={"message": "查看历史记录"}).json()["data"]
+    assert data["kind"] == "history"
+    assert data["source"] == "memory"
+    assert "对话记忆" in data["reply"]
+    assert "我记得你之前介绍过项目" in data["reply"]
+
+
+def test_chat_clear_history_action(session_factory, client):
+    c, _ = client
+    c.post("/api/chat", json={"message": "你好呀"})
+    data = c.post("/api/chat", json={"message": "清空历史"}).json()["data"]
+    assert data["kind"] == "clear_history"
+    assert "已清空" in data["reply"]
+    # 清空指令本身成为新一轮记忆的起点，旧对话不再保留
+    hist = c.get("/api/chat/history").json()["data"]
+    assert hist["total"] == 2
+    assert all("你好呀" not in item["text"] for item in hist["items"])
+
+
+class RecordingProvider:
+    def __init__(self, reply: str = "这是回复内容"):
+        self.reply = reply
+        self.calls: list[list] = []
+
+    async def chat(self, messages):
+        self.calls.append(messages)
+        return self.reply
+
+
+async def test_chat_memory_provides_context_to_llm(session_factory):
+    provider = RecordingProvider()
+    first = await chat_assistant(session_factory, provider, "帮我介绍一下项目")
+    assert first["source"] == "llm"
+    await chat_assistant(session_factory, provider, "继续上次的话题")
+    texts = [m.content for m in provider.calls[1]]
+    assert "帮我介绍一下项目" in texts
+    assert "这是回复内容" in texts
+    assert texts[-1] == "继续上次的话题"
 
 
 def test_chat_publish_all_question_does_not_trigger_action(session_factory, client):

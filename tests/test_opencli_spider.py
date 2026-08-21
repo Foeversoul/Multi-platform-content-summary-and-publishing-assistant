@@ -121,7 +121,10 @@ async def test_fetch_video_uses_official_commands_and_parses(settings):
     assert len(candidates) == 1
     candidate = candidates[0]
     assert candidate.title == "芯片对比实测"
-    assert "本期实测两款主流芯片" in candidate.text
+    # 元数据（bvid/author/description 等）不应出现在正文中
+    assert "BV1Rjbe6hEfH" not in candidate.text
+    assert "某UP" not in candidate.text
+    assert "本期实测两款主流芯片" not in candidate.text
     assert "官方AI总结" in candidate.text
     assert "00:00 开场" in candidate.text
     assert candidate.url == url
@@ -139,6 +142,8 @@ async def test_fetch_video_survives_summary_failure(settings):
     assert len(candidates) == 1
     assert "标题X" in candidates[0].title
     assert "官方AI总结" not in candidates[0].text
+    # AI 总结失败时用 description 兜底，不包含元数据
+    assert candidates[0].text == "简介内容"
 
 
 async def test_fetch_handles_wrapper_and_numeric_time(settings):

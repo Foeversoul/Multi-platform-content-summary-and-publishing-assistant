@@ -1,18 +1,25 @@
 platforms:
   weibo:
     name: 微博
-    min_chars: 1
-    max_chars: 140
+    min_chars: 50
+    max_chars: 500
     min_tags: 1
     max_tags: 3
-    style_prompt: "微博风格：核心信息先行，倒金字塔，口语化，1-3个#话题#，禁用长从句和标题党。"
+    max_emojis: 3
+    style_prompt: >-
+      微博风格：核心信息前置（倒金字塔），口语化、有观点。50-500字；
+      使用1-3个 #话题#；可加 @ 提及与0-3个emoji；结尾可引导互动（如“你怎么看？”）。
+      禁用夸大标题党、长从句和硬广。
   moments:
     name: 朋友圈
     min_chars: 60
     max_chars: 200
-    min_emojis: 1
+    min_emojis: 0
     max_emojis: 3
-    style_prompt: "朋友圈风格：第一人称分享视角，生活化真诚，60-200字，可加1-3个emoji，禁用硬广和营销腔。"
+    style_prompt: >-
+      朋友圈风格：第一人称、真诚、生活化的分享视角。60-200字；
+      可加0-3个emoji；不用话题标签，适当分两到三段更易读。
+      禁用硬广、营销腔和站外导流。
   xhs:
     name: 小红书
     min_chars: 100
@@ -21,4 +28,8 @@ platforms:
     max_tags: 5
     min_emojis: 1
     max_emojis: 3
-    style_prompt: "小红书风格：第一人称种草分享，标题行作首行，100-500字，2-5个#话题#和1-3个emoji，禁用硬广和导流。"
+    style_prompt: >-
+      小红书风格：第一人称种草分享，首行作标题行。100-500字；
+      使用2-5个 #话题# 与1-3个emoji；
+      采用“开头钩子 → 分点/换行正文 → 结尾行动号召（如“你会试试吗？”）”的结构。
+      禁用硬广与导流（电话/微信/站外链接/联系方式）。

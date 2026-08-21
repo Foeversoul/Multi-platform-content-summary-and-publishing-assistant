@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
-import { ChatDotRound, Promotion } from '@element-plus/icons-vue'
+import { nextTick, onMounted, ref } from 'vue'
+import { ChatDotRound, Delete, Promotion } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 
-import { sendChatMessage } from '@/api/chat'
+import { clearChatHistory, fetchChatHistory, sendChatMessage } from '@/api/chat'
 import { ApiClientError } from '@/utils/request'
 
 interface Msg {
@@ -12,10 +13,13 @@ interface Msg {
   kind?: string
 }
 
+const WELCOME_TEXT =
+  '你好！我是本项目的 AI 助手，既可以解答功能用法，也能直接帮你执行项目操作。试试下面的快捷指令，或直接输入你的需求。'
+
 const messages = ref<Msg[]>([
   {
     role: 'assistant',
-    text: '你好！我是本项目的 AI 助手，既可以解答功能用法，也能直接帮你执行项目操作。试试下面的快捷指令，或直接输入你的需求。',
+    text: WELCOME_TEXT,
   },
 ])
 const input = ref('')
@@ -28,9 +32,32 @@ const suggestions = [
   '支持哪些平台？',
   '帮我爬取一个链接',
   '列一下待审列表',
+  '查历史记录',
   '发布所有待审',
   '当前待审数量',
 ]
+
+async function loadHistory() {
+  try {
+    const { items } = await fetchChatHistory(50)
+    if (!items.length) return
+    messages.value = [
+      ...messages.value,
+      ...items.map((it) => ({
+        role: it.role,
+        text: it.text,
+        source: it.role === 'assistant' ? 'memory' : undefined,
+      })),
+    ]
+    await scrollToBottom()
+  } catch {
+    // 历史加载失败不阻断聊天入口
+  }
+}
+
+onMounted(() => {
+  void loadHistory()
+})
 
 async function scrollToBottom() {
   await nextTick()
@@ -65,10 +92,24 @@ function onSubmit() {
 function onSuggestion(s: string) {
   void send(s)
 }
+
+async function onClearScreen() {
+  messages.value = [{ role: 'assistant', text: WELCOME_TEXT }]
+  try {
+    const { cleared } = await clearChatHistory()
+    ElMessage.success(cleared ? `已清屏，并清除 ${cleared} 条对话记忆` : '已清屏')
+  } catch {
+    // 记忆清除失败时至少本地清空显示
+  }
+  await scrollToBottom()
+}
 </script>
 
 <template>
   <div class="chat-page">
+    <div class="chat-toolbar">
+      <el-button size="small" :icon="Delete" :disabled="sending" @click="onClearScreen">清屏</el-button>
+    </div>
     <div class="chat-suggestions">
       <el-button
         v-for="s in suggestions"
@@ -128,6 +169,11 @@ function onSuggestion(s: string) {
   height: 100%;
   max-width: 800px;
   margin: 0 auto;
+}
+.chat-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 .chat-suggestions {
   display: flex;

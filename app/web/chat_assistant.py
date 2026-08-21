@@ -1,18 +1,22 @@
-"""AI 对话助手：基于项目知识的问答 + 按需求执行模块功能。
+"""AI 对话助手：基于项目知识的问答 + 按需求执行模块功能 + 24 小时对话记忆。
 
 LLM 可用时走对话生成；不可用时按关键词匹配回退到内置知识库。
-当用户表达明确的执行意图（导入内容 / 发布 / 重新生成 / 状态查询）时，
+对话会保存最近 24 小时的历史（user / assistant 消息），回答时作为上下文参考；
+支持“查历史记录”查询近期对话、“清空历史”清除记忆。
+当用户表达明确的执行意图（导入内容 / 发布 / 重新生成 / 状态查询 / 爬取 URL）时，
 直接调用对应模块动作并把执行结果回写到对话中。
 """
 
 import asyncio
 import re
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.llm.provider import ChatMessage, LLMError
 from app.scrape.errors import QuotaExceededError, ScrapeError
 from app.storage.models import Article, PlatformCopy, Review, Summary, Verdict
+from app.storage.models import ChatMessage as ChatMessageRecord
 from app.web.actions import ReviewNotFoundError, publish_copy, publish_pending_all
 from app.web.content_ops import CopyNotFoundError, PublishedCopyError, extract_title
 
@@ -33,9 +37,9 @@ _KB: list[tuple[list[str], str]] = [
     (
         ["平台", "哪些平台", "微博", "朋友圈", "小红书", "支持平台"],
         "当前支持三个平台的文案扩写：\n"
-        + "• 微博（≤140字，1-3 个话题标签，倒金字塔口语化风格）\n"
-        + "• 朋友圈（60-200字，第一人称分享视角，可加 emoji）\n"
-        + "• 小红书（100-500字，种草分享风格，2-5 个话题标签 + emoji）\n"
+        + "• 微博（50-500字，1-3 个话题标签，倒金字塔口语化风格）\n"
+        + "• 朋友圈（60-200字，第一人称生活化分享，0-3 个 emoji，不使用话题标签）\n"
+        + "• 小红书（100-500字，种草分享风格，2-5 个话题标签 + 1-3 个 emoji）\n"
         + "新增平台只需在 platforms.yaml 中添加配置，适配器会自动按配置生成文案。",
     ),
     (
@@ -122,15 +126,18 @@ _KB: list[tuple[list[str], str]] = [
 ]
 
 _SYSTEM_PROMPT = (
-    "你是多平台内容总结与发布助手项目的 AI 助手。你的职责是帮助用户了解和使用这个项目。\n"
+    "你是多平台内容总结与发布助手项目的 AI 助手。你的职责是帮助用户了解、调试和使用这个项目，并直接帮用户执行操作。\n"
     + "项目核心流程：采集 → AI 摘要 → 多平台文案扩写 → 人工审核 → 发布。\n"
     + "支持的内容导入方式：URL 上传爬取（含 OpenCLI 浏览器渲染兜底）、RSS 订阅、手动内容上传（文本/文件）。\n"
-    + "支持的平台：微博、朋友圈、小红书（可在 platforms.yaml 扩展）。\n"
-   + "主要功能页面：待审列表、内容导入、运行总览、回收站、死信管理。\n"
-   + "快照兜底：常规爬虫和 OpenCLI 渲染均失败时，自动用 Playwright 加载页面 + OCR 识别文字提取正文。\n"
-   + "架构：基于 Redis Streams 事件总线的多智能体流水线，worker 进程消费事件自动执行。\n"
+    + "支持的平台：微博（50-500字，1-3个#话题#）、朋友圈（60-200字，0-3个emoji，不用话题标签）、"
+    + "小红书（100-500字，2-5个#话题#和1-3个emoji，可在 platforms.yaml 扩展）。\n"
+    + "主要功能页面：待审列表、内容导入、运行总览、回收站、死信管理、AI 助手。\n"
+    + "快照兜底：常规爬虫和 OpenCLI 渲染均失败时，自动用 Playwright 加载页面 + OCR 识别文字提取正文。\n"
+    + "架构：基于 Redis Streams 事件总线的多智能体流水线，worker 进程消费事件自动执行。\n"
     + "你还可以直接执行模块动作：爬取指定链接、导入内容、发布所有待审、发布单条文案（指定编号）、"
     + "重新生成摘要或扩写、查询待审列表与待审数量。\n"
+    + "对话记忆：系统保留最近 24 小时的对话记录，回答时会参考之前的上下文；"
+    + "用户说“查历史记录/查看历史”可以查看近期对话，说“清空历史/清除记忆”可以删除记忆。\n"
     + "请用简洁清晰的中文回答用户问题，适当使用列表和换行提升可读性。不要编造不存在的功能。"
 )
 
@@ -165,6 +172,10 @@ _STATUS_WORDS = ("运行状态", "状态如何", "待审数量", "有多少待�
 _CRAWL_VERBS = ("爬取", "抓取", "爬一下", "爬一爬", "采集这个")
 _URL_RE = re.compile(r"https?://[^\s，。、；：\"'<>]+", re.IGNORECASE)
 _MIN_TEXT_LEN = 20
+_MEMORY_WINDOW_HOURS = 24
+_MEMORY_LIMIT = 40
+_HISTORY_WORDS = ("历史记录", "查历史", "查看历史", "看看历史", "历史消息", "聊天记录", "之前的对话")
+_CLEAR_HISTORY_WORDS = ("清空历史", "清除历史", "清空对话", "清除记录", "清除记忆", "清空记忆")
 
 
 def _is_question(message: str) -> bool:
@@ -209,8 +220,62 @@ def _query_pending(session_factory, limit: int = 10) -> list[tuple[int, str, str
         return [(row[0], row[1] or "", row[2]) for row in rows]
 
 
+def _load_history(session_factory, limit: int = _MEMORY_LIMIT) -> list[tuple[str, str]]:
+    """返回最近 24 小时内的对话历史（时间正序，最多 limit 条）。"""
+    since = datetime.now(UTC) - timedelta(hours=_MEMORY_WINDOW_HOURS)
+    with session_factory() as session:
+        rows = session.scalars(
+            select(ChatMessageRecord)
+            .where(ChatMessageRecord.created_at >= since)
+            .order_by(ChatMessageRecord.id.desc())
+            .limit(limit)
+        ).all()
+    return [(row.role, row.text) for row in reversed(rows)]
+
+
+def _save_chat_message(session_factory, role: str, text: str) -> None:
+    with session_factory() as session:
+        session.add(ChatMessageRecord(role=role, text=(text or "")[:4000]))
+        session.commit()
+
+
+def _clear_chat_history(session_factory) -> int:
+    with session_factory() as session:
+        result = session.execute(delete(ChatMessageRecord))
+        session.commit()
+        return result.rowcount or 0
+
+
+def _format_history(rows: list[tuple[str, str]]) -> str:
+    if not rows:
+        return "最近 24 小时没有对话记录。"
+    lines = [
+        f"- {'我' if role == 'user' else '助手'}：{text}"
+        for role, text in rows
+    ]
+    return "最近 24 小时的对话记忆：\n" + "\n".join(lines)
+
+
 async def _try_action(session_factory, content_ops, message: str, scrape_service=None) -> dict | None:
     """尝试识别并执行动作意图；未命中任何动作时返回 None（进入问答）。"""
+    if any(word in message for word in _HISTORY_WORDS) and not _is_question(message):
+        rows = _load_history(session_factory)
+        return {
+            "text": _format_history(rows),
+            "source": "memory",
+            "kind": "history",
+            "data": {"items": [{"role": role, "text": text} for role, text in rows]},
+        }
+
+    if any(word in message for word in _CLEAR_HISTORY_WORDS) and not _is_question(message):
+        cleared = _clear_chat_history(session_factory)
+        return {
+            "text": f"已清空 {_MEMORY_WINDOW_HOURS} 小时内的对话记忆，共清除 {cleared} 条消息。",
+            "source": "action",
+            "kind": "clear_history",
+            "data": {"cleared": cleared},
+        }
+
     content = _parse_import(message)
     if content:
         try:
@@ -317,30 +382,40 @@ def _keyword_fallback(message: str) -> str:
 
 
 async def chat_assistant(session_factory, provider, message: str, content_ops=None, scrape_service=None) -> dict:
-    """AI 对话助手：先识别执行动作，再退回 LLM 问答 / 关键词知识库。"""
+    """AI 对话助手：先识别动作，再退回带 24 小时记忆的 LLM 问答 / 知识库回退。"""
     message = (message or "").strip()
     if not message:
         return {"text": "请输入您的问题或要执行的指令。", "source": "fallback", "kind": "empty"}
 
+    history = _load_history(session_factory)
     if content_ops is not None:
         action_result = await _try_action(session_factory, content_ops, message, scrape_service)
         if action_result is not None:
+            _save_chat_message(session_factory, "user", message)
+            _save_chat_message(session_factory, "assistant", action_result["text"])
             return action_result
 
+    _save_chat_message(session_factory, "user", message)
+    context: list[ChatMessage] = [ChatMessage("system", _SYSTEM_PROMPT)]
+    context.extend(ChatMessage(role, text) for role, text in history)
+    context.append(ChatMessage("user", message))
+
     if provider is None:
-        return {"text": _keyword_fallback(message), "source": "fallback", "kind": "qa"}
+        reply = {"text": _keyword_fallback(message), "source": "fallback", "kind": "qa"}
+        _save_chat_message(session_factory, "assistant", reply["text"])
+        return reply
     try:
-        raw = await asyncio.wait_for(
-            provider.chat([
-                ChatMessage("system", _SYSTEM_PROMPT),
-                ChatMessage("user", message),
-            ]),
-            timeout=20.0,
-        )
+        raw = await asyncio.wait_for(provider.chat(context), timeout=20.0)
         text = raw.strip()
         # LLM 返回过短或空内容时保底走关键词回退
         if len(text) < 5:
-            return {"text": _keyword_fallback(message), "source": "fallback", "kind": "qa"}
-        return {"text": text, "source": "llm", "kind": "qa"}
+            reply = {"text": _keyword_fallback(message), "source": "fallback", "kind": "qa"}
+            _save_chat_message(session_factory, "assistant", reply["text"])
+            return reply
+        reply = {"text": text, "source": "llm", "kind": "qa"}
+        _save_chat_message(session_factory, "assistant", text)
+        return reply
     except (LLMError, OSError, Exception):  # noqa: BLE001 — 终极保底
-        return {"text": _keyword_fallback(message), "source": "fallback", "kind": "qa"}
+        reply = {"text": _keyword_fallback(message), "source": "fallback", "kind": "qa"}
+        _save_chat_message(session_factory, "assistant", reply["text"])
+        return reply

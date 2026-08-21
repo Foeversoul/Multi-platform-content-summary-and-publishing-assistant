@@ -67,10 +67,21 @@ async def emit_event(
 
 
 async def _ensure_group(redis: Redis, stream: str, group: str) -> None:
+    # 先检查消费组是否已存在，避免 xgroup_create 触发 BUSYGROUP
+    # （fakeredis 在 error reply 后会关闭连接，导致后续命令全部失败）
+    try:
+        groups = await redis.xinfo_groups(stream)
+    except ResponseError:
+        groups = []
+    group_bytes = group.encode() if isinstance(group, str) else group
+    for g in groups:
+        name = g.get(b"name") or g.get("name")
+        if name in (group, group_bytes):
+            return
     try:
         await redis.xgroup_create(stream, group, id="0", mkstream=True)
     except ResponseError:
-        pass  # 消费组已存在
+        pass  # 消费组已存在（并发创建竞态）
 
 
 def _short_error(exc: Exception, limit: int = 500) -> str:
@@ -140,7 +151,16 @@ async def _read_group(
     result = await redis.xreadgroup(group, consumer, {stream: read_id}, count=count, **kwargs)
     if not result:
         return []
-    _, entries = result[0]
+    # Normalize across RESP2/RESP3 and fakeredis wire quirks:
+    # RESP2 list: [(stream, entries)]
+    # RESP3 dict: {stream: entries}
+    # fakeredis RESP3 double-wraps entries in an extra list
+    if isinstance(result, dict):
+        entries = next(iter(result.values()))
+    else:
+        _, entries = result[0]
+    if entries and isinstance(entries[0], list):
+        entries = entries[0]
     return [(entry[0], entry[1]) for entry in entries]
 
 

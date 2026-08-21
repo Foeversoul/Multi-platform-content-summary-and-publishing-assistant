@@ -5,17 +5,18 @@
 """
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Body, File, Query, UploadFile
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.config import Settings
 from app.scrape.errors import QuotaExceededError, ScrapeError
 from app.scrape.service import ScrapeService
 from app.storage.models import (
     Article,
+    ChatMessage,
     EventLog,
     EventStatus,
     PlatformCopy,
@@ -386,6 +387,31 @@ def build_api_router(session_factory, redis, settings: Settings, scrape_service:
             raise ApiError(400, 400, "消息不能为空")
         reply = await chat_assistant(session_factory, provider, message, content_ops, scrape_service=service)
         return ok({"reply": reply["text"], "source": reply["source"], "kind": reply.get("kind"), "data": reply.get("data")})
+
+    @router.get("/chat/history")
+    def chat_history(limit: int = Query(50, ge=1, le=200)):
+        """查询最近 24 小时的对话历史（时间正序）。"""
+        since = datetime.now(UTC) - timedelta(hours=24)
+        with session_factory() as session:
+            rows = session.scalars(
+                select(ChatMessage)
+                .where(ChatMessage.created_at >= since)
+                .order_by(ChatMessage.id.desc())
+                .limit(limit)
+            ).all()
+            items = [
+                {"id": row.id, "role": row.role, "text": row.text, "created_at": _dt(row.created_at)}
+                for row in reversed(rows)
+            ]
+        return ok({"items": items, "total": len(items)})
+
+    @router.post("/chat/history/clear")
+    def clear_chat_history():
+        """清空对话记忆（24 小时记忆一并清除）。"""
+        with session_factory() as session:
+            result = session.execute(delete(ChatMessage))
+            session.commit()
+        return ok({"cleared": result.rowcount or 0})
 
     # ---------- IF-05 运行状态 ----------
 

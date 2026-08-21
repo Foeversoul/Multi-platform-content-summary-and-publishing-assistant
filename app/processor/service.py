@@ -1,3 +1,5 @@
+from sqlalchemy import select
+
 from app.config import Settings
 from app.events import EVENT_ARTICLE_CRAWLED, EVENT_SUMMARY_GENERATED
 from app.orchestrator.registry import SkillRegistry
@@ -22,6 +24,12 @@ class ProcessorService:
         article = session.get(Article, article_id)
         if article is None:
             raise ValueError(f"unknown article_id: {article_id}")
+        # 幂等：文章已摘要或更后续状态时，直接返回已有摘要，跳过重复处理
+        current = ArticleStatus(article.status)
+        if current in (ArticleStatus.SUMMARIZED, ArticleStatus.ADAPTED, ArticleStatus.REVIEWED, ArticleStatus.PUBLISHED, ArticleStatus.REJECTED):
+            existing = session.scalar(select(Summary).where(Summary.article_id == article_id))
+            if existing is not None:
+                return existing
         transition(ArticleStatus(article.status), ArticleStatus.SUMMARIZED)
         text = clean_text(article.text)
         sentences = remove_noise_sentences(split_sentences(text))

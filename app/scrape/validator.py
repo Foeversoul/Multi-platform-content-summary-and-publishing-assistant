@@ -127,6 +127,26 @@ class UrlValidator:
             return ProbeResult(False, err, ERROR_MESSAGES[err])
         return await self._probe_http(url)
 
+    async def validate_without_probe(self, url: str) -> ProbeResult:
+        """Format + SSRF check only, skip HTTP probe.
+
+        Used for platforms fetched via Browser Bridge (opencli), whose real
+        fetch does not depend on this process directly connecting the target,
+        so an HTTP probe is both meaningless and misclassified as unreachable
+        in environments without direct outbound network.
+        """
+        err = validate_url_format(url)
+        if err:
+            return ProbeResult(False, err, ERROR_MESSAGES[err])
+        err = check_static_ssrf(url)
+        if err:
+            return ProbeResult(False, err, ERROR_MESSAGES[err])
+        host = urlparse(url).hostname
+        err = await self._resolve_check_ssrf(host)
+        if err:
+            return ProbeResult(False, err, ERROR_MESSAGES[err])
+        return ProbeResult(True)
+
     async def _probe_http(self, url: str) -> ProbeResult:
         ua = random.choice(self.settings.user_agents)
         headers = {"User-Agent": ua}

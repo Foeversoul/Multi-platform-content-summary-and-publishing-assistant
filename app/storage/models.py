@@ -208,3 +208,13 @@ class ScrapeJobItem(Base):
     article_id: Mapped[int | None] = mapped_column(ForeignKey("article.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ChatMessage(Base):
+    """AI 对话助手消息（24 小时记忆）：role 取 user / assistant。"""
+
+    __tablename__ = "chat_message"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    role: Mapped[str] = mapped_column(String(16), index=True)
+    text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
