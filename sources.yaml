@@ -1,15 +1,16 @@
 sources:
-  - id: demo-news
-    name: 示例新闻
+  - id: hackernews-rss
+    name: Hacker News
     type: rss
-    url: https://example.com/feed.xml
+    url: https://news.ycombinator.com/rss
     frequency_minutes: 60
-  - id: demo-blog
-    name: 示例博客
-    type: web
-    url: https://example.com/blog
+  - id: sspai-rss
+    name: 少数派
+    type: rss
+    url: https://sspai.com/feed
     frequency_minutes: 120
-  # OpenCLI 数据源：需要先安装 opencli 并配置好 Browser Bridge 扩展与已登录的 Chrome。
+  # OpenCLI 数据源需要先安装 opencli，并配置好 Browser Bridge 扩展与已登录的 Chrome，
+  # 且所在机器必须能访问外网。默认关闭（enabled: false），配置好后改为 true 即可启用。
   # type=opencli 时 site/command 对应 opencli 的内置适配器；args 为额外参数（如搜索词）。
   - id: bilibili-hot
     name: B站热榜
@@ -18,6 +19,7 @@ sources:
     command: hot
     limit: 20
     frequency_minutes: 120
+    enabled: false
   - id: zhihu-hot
     name: 知乎热榜
     type: opencli
@@ -25,6 +27,7 @@ sources:
     command: hot
     limit: 20
     frequency_minutes: 120
+    enabled: false
   - id: hacknews-top
     name: HackerNews Top
     type: opencli
@@ -32,3 +35,4 @@ sources:
     command: top
     limit: 20
     frequency_minutes: 120
+    enabled: false
