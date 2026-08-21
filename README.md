@@ -82,10 +82,12 @@ npm run dev
 | POST | `/api/reviews/{copy_id}/delete` | 单条软删除（移入回收站） |
 | GET | `/api/recycle` | 回收站列表（已删除文案） |
 | POST | `/api/recycle/{copy_id}/restore` | 从回收站恢复 |
+| POST | `/api/recycle/batch-restore` | 批量恢复（`copy_ids` 整数列表） |
 | DELETE | `/api/recycle/{copy_id}` | 永久删除（连带审核/发布记录，不可恢复） |
+| POST | `/api/recycle/batch-purge` | 批量永久删除（`copy_ids` 整数列表，不可恢复） |
 | POST | `/api/content/manual` | 手动上传文本/Markdown，同步完成摘要 → 扩写 → 待审 |
 | POST | `/api/content/manual/file` | 上传文件（`.txt` / `.md` / `.docx`，≤2MB）进入完整 AI 流程 |
-| POST | `/api/chat` | AI 对话助手（基于项目知识问答） |
+| POST | `/api/chat` | AI 对话助手：问答 + 按指令执行动作（导入 / 爬取 / 发布 / 重新生成 / 查询） |
 | GET | `/api/health` | 健康检查（DB/Redis 探针，`/api/health` 鉴权豁免） |
 
 ## 主要命令
@@ -155,3 +157,25 @@ Chrome 抓取这些平台，并把输出接入本项目的去重/落库/事件�
 Markdown 后入库。该行为由 `ASSISTANT_OPENCLI_RENDER_FALLBACK` 控制（默认开启），多 Chrome 配置下
 可通过 `ASSISTANT_OPENCLI_PROFILE` 指定别名（如 `9hrejvdm`）。这样“粘贴 URL → 自动爬取正文”
 即可覆盖常规静态页面和需要 JS 渲染 / 登录态的页面。
+
+### 视频链接采集
+
+粘贴 B 站 / YouTube 视频链接进行爬取时，会走专门的视频解析：优先按官方命令抓取
+（B 站 `bilibili video` + `bilibili summary`），失败则回退到页面 `meta` 简介，提取干净的
+标题、官方简介与时间戳章节大纲，剔除评论区、推荐位、互动数字等噪声后入库。由于视频正文通常很短，
+摘要器会对这类短素材自动补写一段完整的中文描述（不编造素材中不存在的内容）。
+
+支持平台：`bilibili.com`（含 `b23.tv` 短链与 `/video/` 页面）、YouTube（`watch` / `shorts` / `youtu.be`）。
+
+### AI 对话助手（可执行动作）
+
+`POST /api/chat` 的消息既是问答也可以是执行指令。LLM 可用时走对话，离线时按关键词回退到知识库；
+当消息命中明确的执行意图时，会直接调用对应模块动作并把结果回写到回答中，包含：
+
+- **导入**：粘贴文本/Markdown（≥20 字），自动完成摘要 → 全平台扩写 → 待审
+- **爬取**：消息含链接（如「帮我爬取 https://…」），创建爬取任务并在后台抓取
+- **发布**：单条（指定编号，如「发布 #3」）或一键发布全部待审
+- **重新生成**：按编号重新生成摘要或扩写单条平台文案
+- **查询**：列出待审列表、当前待审数量 / 运行状态
+
+带疑问语气（“如何…”“…？”）的消息不会触发动作，会当作普通问答处理。
