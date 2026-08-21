@@ -1,5 +1,9 @@
+import asyncio
 from pathlib import Path
 
+import pytest
+
+from app.collector.errors import FetchError
 from app.collector.rss_spider import RssSpider
 from app.collector.sources import SourceConfig
 
@@ -52,3 +56,27 @@ async def test_rss_spider_content_and_no_link(settings, tmp_path: Path):
     assert "完整正文内容" in candidates[0].text
     assert candidates[0].url == "https://example.com/full"
     assert candidates[1].url == str(feed)  # 无链接时回退到源 URL
+
+
+async def test_rss_spider_surfaces_network_failure(settings, monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr("app.collector.rss_spider.feedparser.parse", boom)
+    source = SourceConfig(id="r-x", name="RSS", type="rss", url="https://example.com/feed.xml")
+    spider = RssSpider(settings)
+    with pytest.raises(FetchError, match="RSS 拉取失败"):
+        await spider.fetch(source)
+
+
+async def test_rss_spider_reports_timeout(settings, monkeypatch):
+    settings.request_timeout_seconds = 0.05
+
+    async def hanging_thread(_func, *_args, **_kwargs):
+        await asyncio.sleep(1)
+
+    monkeypatch.setattr("app.collector.rss_spider.asyncio.to_thread", hanging_thread)
+    source = SourceConfig(id="r-y", name="RSS", type="rss", url="https://example.com/slow.xml")
+    spider = RssSpider(settings)
+    with pytest.raises(FetchError, match="RSS 拉取超时"):
+        await spider.fetch(source)

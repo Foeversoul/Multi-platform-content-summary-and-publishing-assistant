@@ -20,6 +20,16 @@ class FakeRunner:
         return self.result
 
 
+class FakeSequenceRunner:
+    def __init__(self, results):
+        self.results = list(results)
+        self.calls: list[list[str]] = []
+
+    async def run(self, argv, timeout):
+        self.calls.append((argv, timeout))
+        return self.results.pop(0)
+
+
 def _source(**overrides) -> SourceConfig:
     values = {
         "id": "o1",
@@ -38,6 +48,7 @@ def _rows_stdout(rows) -> str:
 
 
 async def test_build_argv_appends_limit_and_json(settings):
+    settings.opencli_profile = ""
     runner = FakeRunner(CommandResult(0, "[]", ""))
     spider = OpenCliSpider(settings, runner=runner)
     source = _source()
@@ -53,6 +64,14 @@ async def test_build_argv_uses_args_and_profile(settings):
     source = _source(profile="work", args=["--region", "cn"])
     await spider.fetch(source)
     assert runner.calls[0][0] == ["opencli", "--profile", "work", "bilibili", "hot", "--region", "cn", "--limit", "5", "-f", "json"]
+
+
+async def test_build_argv_falls_back_to_global_profile(settings):
+    settings.opencli_profile = "9hrejvdm"
+    runner = FakeRunner(CommandResult(0, "[]", ""))
+    spider = OpenCliSpider(settings, runner=runner)
+    await spider.fetch(_source())
+    assert runner.calls[0][0] == ["opencli", "--profile", "9hrejvdm", "bilibili", "hot", "--limit", "5", "-f", "json"]
 
 
 async def test_build_argv_does_not_duplicate_limit(settings):
@@ -77,6 +96,49 @@ async def test_fetch_parses_row_list(settings):
     assert candidates[0].text == "第一条正文"
     assert candidates[0].publish_time is not None
     assert candidates[1].text == "第二条摘要"
+
+
+async def test_fetch_video_uses_official_commands_and_parses(settings):
+    settings.opencli_profile = "9hrejvdm"
+    video_json = _rows_stdout(
+        [
+            {"field": "bvid", "value": "BV1Rjbe6hEfH"},
+            {"field": "title", "value": "芯片对比实测"},
+            {"field": "author", "value": "某UP"},
+            {"field": "description", "value": "本期实测两款主流芯片的性能与功耗表现。"},
+        ]
+    )
+    summary_json = _rows_stdout(
+        [
+            {"time": "00:00", "content": "开场"},
+            {"time": "01:23", "content": "性能跑分"},
+        ]
+    )
+    runner = FakeSequenceRunner([CommandResult(0, video_json, ""), CommandResult(0, summary_json, "")])
+    spider = OpenCliSpider(settings, runner=runner)
+    url = "https://www.bilibili.com/video/BV1Rjbe6hEfH"
+    candidates = await spider.fetch_video(url)
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate.title == "芯片对比实测"
+    assert "本期实测两款主流芯片" in candidate.text
+    assert "官方AI总结" in candidate.text
+    assert "00:00 开场" in candidate.text
+    assert candidate.url == url
+    # 官方命令：opencli --profile <p> bilibili video <url> -f json
+    assert runner.calls[0][0] == ["opencli", "--profile", "9hrejvdm", "bilibili", "video", url, "-f", "json"]
+    assert runner.calls[1][0][4] == "summary"
+    assert runner.calls[1][0][-1] == "json"
+
+
+async def test_fetch_video_survives_summary_failure(settings):
+    video_json = _rows_stdout([{"field": "title", "value": "标题X"}, {"field": "description", "value": "简介内容"}])
+    runner = FakeSequenceRunner([CommandResult(0, video_json, ""), CommandResult(70, "", "summary unavailable")])
+    spider = OpenCliSpider(settings, runner=runner)
+    candidates = await spider.fetch_video("https://www.bilibili.com/video/BV1Rjbe6hEfH")
+    assert len(candidates) == 1
+    assert "标题X" in candidates[0].title
+    assert "官方AI总结" not in candidates[0].text
 
 
 async def test_fetch_handles_wrapper_and_numeric_time(settings):

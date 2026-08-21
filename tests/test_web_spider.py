@@ -91,7 +91,15 @@ async def test_web_spider_domain_paused(settings):
 
 
 async def test_web_spider_render_unsupported(settings):
-    spider = WebSpider(settings, transport=httpx.MockTransport(lambda r: httpx.Response(200, text=HTML, request=r)))
+    class NoOpenCliRunner:
+        async def run(self, argv, timeout):
+            raise FileNotFoundError("opencli not found")
+
+    spider = WebSpider(
+        settings,
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, text=HTML, request=r)),
+        runner=NoOpenCliRunner(),
+    )
     source = SourceConfig(id="w6", name="网页", type="web", url="https://example.com/a", render=True)
     with pytest.raises(FetchError):
         await spider.fetch(source)
@@ -116,6 +124,8 @@ async def test_web_spider_empty_text_returns_no_candidates(settings):
 
 
 async def test_web_spider_render_fallback_when_static_empty(settings):
+    # 与本地 .env 解耦，保证命令形参在任何机器上都是确定性的
+    settings.opencli_profile = ""
     empty_html = "<html><head><title>空页</title></head><body><nav>导航</nav></body></html>"
     runner = FakeRunner(
         CommandResult(

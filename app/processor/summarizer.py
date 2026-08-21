@@ -14,6 +14,12 @@ SYSTEM_PROMPT = (
     "3) short_title：不超过30字的精简标题。"
     '只输出 JSON：{"summary": string, "key_points": [string], "short_title": string}'
 )
+_SHORT_SOURCE_PROMPT = (
+    "你是资深中文内容编辑。下面的素材信息很少（通常是视频简介或时间戳大纲）。"
+    "请基于标题和素材，补写一段完整、连贯、详实的中文完整描述，字数不少于 {min_chars} 字。"
+    "不要编造素材中不存在的事实，可以围绕主题合理展开并保持客观。"
+    '只输出 JSON：{"summary": string}'
+)
 
 
 @dataclass
@@ -35,7 +41,37 @@ def _fallback(article_text: str, title: str, min_chars: int, max_chars: int) -> 
     )
 
 
+async def _short_source_description(provider, article_text: str, title: str, min_chars: int) -> SummarizerResult:
+    """原文很短（视频链接常见）时，让 AI 补写一大段完整文字描述。"""
+    clean = clean_text(article_text)
+
+    async def _fallback() -> SummarizerResult:
+        body = clean or (title or "")
+        return SummarizerResult(
+            summary_text=body,
+            key_points=[],
+            short_title=(title or "")[:30],
+            source="extractive",
+        )
+
+    if provider is None:
+        return await _fallback()
+    system_prompt = _SHORT_SOURCE_PROMPT.replace("{min_chars}", str(min_chars))
+    user_message = f"标题：{title}\n\n素材：\n{clean[:3000]}"
+    try:
+        raw = await provider.chat([ChatMessage("system", system_prompt), ChatMessage("user", user_message)])
+        data = json.loads(raw)
+        summary_text = str(data["summary"]).strip()
+        if len(summary_text) < min_chars:
+            raise ValueError("description too short")
+        return SummarizerResult(summary_text, [], (title or "")[:30], "llm")
+    except (LLMError, ValueError, json.JSONDecodeError, KeyError):
+        return await _fallback()
+
+
 async def generate_summary(provider, article_text: str, title: str, min_chars: int = 200, max_chars: int = 400) -> SummarizerResult:
+    if len(clean_text(article_text)) < min_chars:
+        return await _short_source_description(provider, article_text, title, min_chars)
     if provider is None:
         return _fallback(article_text, title, min_chars, max_chars)
     user_message = f"标题：{title}\n\n正文：\n{article_text[:3000]}"

@@ -12,8 +12,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.collector.dedup import DedupService, hash_content, simhash, to_signed
+from app.collector.opencli_spider import OpenCliSpider
 from app.collector.snapshot import SnapshotCollector
 from app.collector.sources import SourceConfig
+from app.collector.video import resolve_video_platform
 from app.collector.web_spider import FetchError, WebSpider
 from app.config import Settings
 from app.events import EVENT_ARTICLE_CRAWLED
@@ -50,12 +52,14 @@ class ScrapeService:
         spider: WebSpider | None = None,
         dedup: DedupService | None = None,
         snapshot: SnapshotCollector | None = None,
+        opencli_spider: OpenCliSpider | None = None,
         redis=None,
     ) -> None:
         self.settings = settings
         self.validator = validator or UrlValidator(settings)
         self.spider = spider or WebSpider(settings)
         self.dedup = dedup or DedupService(settings.dedup_window_days, settings.simhash_threshold)
+        self.opencli_spider = opencli_spider or OpenCliSpider(settings)
         self.redis = redis
         self.snapshot = snapshot or SnapshotCollector(settings)
 
@@ -205,7 +209,15 @@ class ScrapeService:
         try:
             cfg = SourceConfig(id=f"scrape-{uuid.uuid4().hex[:8]}", name="manual", type="web", url=url)
             try:
-                candidates = await self.spider.fetch(cfg)
+                candidates: list = []
+                # 单条 B 站视频按官方命令抓取元数据 + AI 总结，失败再回退静态网页解析
+                if resolve_video_platform(url) is not None and self.opencli_spider is not None:
+                    try:
+                        candidates = await self.opencli_spider.fetch_video(url, cfg)
+                    except FetchError:
+                        candidates = []
+                if not candidates:
+                    candidates = await self.spider.fetch(cfg)
                 # 只保留与目标 URL 一致的候选，避免跨 URL 误取内容导致错文章/误判重（FR-24）
                 candidates = [c for c in candidates if c.url == url]
             except FetchError as fetch_exc:

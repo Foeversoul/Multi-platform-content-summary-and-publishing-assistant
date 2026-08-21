@@ -13,6 +13,7 @@ from app.collector.opencli_spider import OpenCliError, SubprocessRunner
 from app.collector.politeness import DomainPauseRegistry, RateLimiter
 from app.collector.robots import RobotsPolicy, fetch_robots_text
 from app.collector.sources import SourceConfig
+from app.collector.video import build_video_candidate, resolve_video_platform
 from app.config import Settings
 
 
@@ -102,6 +103,13 @@ class WebSpider:
             if robots_text is not None and not RobotsPolicy.from_text(robots_text).can_fetch(ua, source.url):
                 raise FetchError(f"robots.txt disallows: {source.url}")
             html = await self._get_with_retry(client, source.url)
+
+        # 视频链接：直接解析官方简介与时间戳大纲，避免正文解析拿到无关信息
+        if resolve_video_platform(source.url) is not None:
+            video_candidate = build_video_candidate(html, source.url)
+            if video_candidate is not None:
+                return [video_candidate]
+
         doc = Document(html)
         title = normalize_text(doc.title() or source.url)
         summary_html = doc.summary(html_partial=True)

@@ -39,3 +39,18 @@ async def test_generate_summary_falls_back_on_invalid_json():
     provider = FakeProvider("not json")
     result = await generate_summary(provider, ARTICLE, "研究标题", min_chars=10, max_chars=200)
     assert result.source == "extractive"
+
+
+async def test_generate_summary_writes_full_description_for_short_source():
+    long_text = "这是AI根据视频简介与时间戳补写的一大段完整描述。" * 10
+    provider = FakeProvider('{"summary": "' + long_text + '"}')
+    result = await generate_summary(provider, "芯片对比实测。", "芯片对比实测", min_chars=50)
+    assert result.source == "llm"
+    assert len(result.summary_text) >= 50
+    assert "一大段完整描述" in result.summary_text
+
+
+async def test_generate_summary_short_source_falls_back_without_provider():
+    result = await generate_summary(None, "00:00 开场，01:00 实测。", "芯片对比实测", min_chars=50)
+    assert result.source == "extractive"
+    assert result.summary_text

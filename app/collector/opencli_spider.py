@@ -146,6 +146,65 @@ class OpenCliSpider:
         self.settings = settings
         self.runner = runner or SubprocessRunner()
 
+    async def fetch_video(self, url: str, source: SourceConfig | None = None) -> list[Candidate]:
+        """按官方命令抓取单个 B 站视频：`bilibili video` + `bilibili summary`。"""
+        opencli_bin = (source.opencli_bin if source and source.opencli_bin else "") or self.settings.opencli_bin
+        profile = (source.profile if source and source.profile else "") or self.settings.opencli_profile
+
+        meta = await self._run_simple(["bilibili", "video", url], opencli_bin, profile)
+        title = ""
+        lines: list[str] = []
+        for row in _extract_rows(meta):
+            field = _normalize_key(str(row.get("field") or ""))
+            value = row.get("value")
+            if value in (None, ""):
+                continue
+            text_value = str(value).strip()
+            if field == "title":
+                title = text_value
+            lines.append(f"{field}: {text_value}")
+
+        outline: list[str] = []
+        try:
+            summary = await self._run_simple(["bilibili", "summary", url], opencli_bin, profile)
+            for row in _extract_rows(summary):
+                content = row.get("content")
+                if content in (None, ""):
+                    continue
+                stamp = row.get("time")
+                prefix = f"{stamp} " if stamp not in (None, "") else ""
+                line = f"{prefix}{str(content).strip()}".strip()
+                if line:
+                    outline.append(line)
+        except FetchError:
+            # 摘要接口可能未生成或需登录，失败不阻断元数据采集
+            outline = []
+
+        body = "\n".join(lines)
+        if outline:
+            body = f"{body}\n\n官方AI总结：\n" + "\n".join(outline)
+        if not body and not title:
+            return []
+        return [Candidate(url=url, title=(title or url)[:500], text=body)]
+
+    async def _run_simple(self, positional: list[str], opencli_bin: str, profile: str) -> Any:
+        """执行带 position 参数的 opencli 命令并以 JSON 解析输出。"""
+        argv = [opencli_bin]
+        if profile:
+            argv += ["--profile", profile]
+        argv += [*positional, "-f", "json"]
+        try:
+            result = await self.runner.run(argv, self.settings.opencli_timeout_seconds)
+        except OpenCliError as exc:
+            raise FetchError(str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise FetchError(f"未找到 opencli 命令：{opencli_bin}，请先安装并运行 opencli doctor") from exc
+        if result.returncode == 66:
+            return []
+        if result.returncode != 0:
+            raise FetchError(self._describe_failure(result))
+        return _parse_payload(result.stdout)
+
     async def fetch(self, source: SourceConfig) -> list[Candidate]:
         argv = self._build_argv(source)
         try:
@@ -169,8 +228,9 @@ class OpenCliSpider:
 
     def _build_argv(self, source: SourceConfig) -> list[str]:
         argv = [source.opencli_bin or self.settings.opencli_bin]
-        if source.profile:
-            argv += ["--profile", source.profile]
+        profile = source.profile or self.settings.opencli_profile
+        if profile:
+            argv += ["--profile", profile]
         if source.site:
             argv.append(source.site)
         if source.command:
